@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Leaderboard | Migration Sync Verifier</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="noise"></div>
+    <main class="page">
+      <section class="hero">
+        <div class="badge">Migration Lab</div>
+        <h1>Leaderboard</h1>
+        <p>
+          Track each student app’s sync status and monitor the auto-fill activity.
+        </p>
+        <a class="ghost-link" href="/">Back to comparison</a>
+      </section>
+
+      <section class="panel">
+        <div class="students">
+          <div class="results-header">
+            <h2>Sync status</h2>
+            <button type="button" id="refresh-leaderboard" class="ghost">Refresh board</button>
+          </div>
+          <div id="leaderboard-list" class="students-list"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="results-header">
+          <h2>Auto-fill logs</h2>
+          <span id="log-count">0 entries</span>
+        </div>
+        <div class="log-box" id="log-box"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

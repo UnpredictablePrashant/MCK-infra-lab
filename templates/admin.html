@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Login | Migration Sync Verifier</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="noise"></div>
+    <main class="page">
+      <section class="hero">
+        <div class="badge">Admin</div>
+        <h1>Automation Control</h1>
+        <p>Login to pause or resume the automatic form filling loop.</p>
+      </section>
+
+      <section class="panel">
+        <form method="post" class="admin-form">
+          <div class="field">
+            <label for="username">Username</label>
+            <input id="username" name="username" type="text" required />
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" required />
+          </div>
+          <button type="submit">Sign in</button>
+          {% if error %}
+          <div class="status error">{{ error }}</div>
+          {% endif %}
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

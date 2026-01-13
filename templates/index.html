@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Migration Sync Verifier</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="noise"></div>
+    <main class="page">
+      <section class="hero">
+        <div class="badge">Migration Lab</div>
+        <h1>Lab 1: Migration Sync Verifier</h1>
+        <p>
+          Verify that your app’s data matches the baseline after database migration.
+          Submit your name and app URL to run a live comparison.
+        </p>
+        <div class="nav-links">
+          <a class="ghost-link" href="/lab1">Lab 1 overview</a>
+          <a class="ghost-link" href="/leaderboard">Leaderboard</a>
+          <a class="ghost-link" href="/admin">Admin</a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <form id="compare-form">
+          <div class="field">
+            <label for="name">Student name</label>
+            <input id="name" name="name" type="text" placeholder="e.g. Priya Patel" required />
+          </div>
+          <div class="field">
+            <label for="url">Student app URL</label>
+            <input
+              id="url"
+              name="url"
+              type="url"
+              placeholder="https://your-app.example.com"
+              required
+            />
+          </div>
+          <button type="submit" id="submit-btn">
+            Run comparison
+          </button>
+        </form>
+
+        <div id="status" class="status hidden"></div>
+
+        <div id="results" class="results hidden">
+          <div class="results-header">
+            <h2>Comparison results</h2>
+            <span id="elapsed"></span>
+          </div>
+          <div id="summary" class="summary"></div>
+          <div id="result-list" class="result-list"></div>
+        </div>
+
+        <div class="students">
+          <div class="results-header">
+            <h2>Registered apps</h2>
+            <button type="button" id="refresh-students" class="ghost">Refresh list</button>
+          </div>
+          <div id="students-list" class="students-list"></div>
+        </div>
+      </section>
+
+      <section class="notes">
+        <div>
+          <h3>How it works</h3>
+          <p>
+            We compare your API responses to the baseline app across key endpoints and
+            highlight missing or extra records. If everything matches, you’re good.
+          </p>
+        </div>
+        <div>
+          <h3>Tip</h3>
+          <p>
+            Make sure your app is reachable from the internet and has completed DB
+            migrations before running the check.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

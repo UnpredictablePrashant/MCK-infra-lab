@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin Panel | Migration Sync Verifier</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="noise"></div>
+    <main class="page">
+      <section class="hero">
+        <div class="badge">Admin</div>
+        <h1>Automation Status</h1>
+        <p>Toggle the auto-fill loop that submits data to apps.</p>
+        <div class="nav-links">
+          <a class="ghost-link" href="/lab1">Lab 1</a>
+          <a class="ghost-link" href="/leaderboard">Leaderboard</a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="results-header">
+          <h2>Current status</h2>
+        </div>
+        <div class="status {% if automation_enabled %}ok{% else %}error{% endif %}">
+          Automation is {% if automation_enabled %}running{% else %}stopped{% endif %}.
+        </div>
+        <form method="post" action="/admin/toggle" class="admin-actions">
+          <button type="submit">
+            {% if automation_enabled %}Stop automation{% else %}Start automation{% endif %}
+          </button>
+        </form>
+        <form method="post" action="/admin/logout">
+          <button type="submit" class="ghost">Log out</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>
