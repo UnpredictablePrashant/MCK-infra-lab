@@ -67,6 +67,24 @@
           </div>
         </div>
       </section>
+
+      <section class="panel">
+        <div class="results-header">
+          <h2>Teams</h2>
+        </div>
+        {% if teams %}
+        <div class="notes">
+          {% for team in teams %}
+          <div>
+            <h3>{{ team.name }}</h3>
+            <p>{{ team.members }}</p>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>No teams configured yet.</p>
+        {% endif %}
+      </section>
     </main>
   </body>
 </html>

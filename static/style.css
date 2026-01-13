@@ -116,6 +116,74 @@ form {
   gap: 18px;
 }
 
+textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--outline);
+  font-size: 1rem;
+  background: #fff;
+  font-family: "IBM Plex Mono", monospace;
+  resize: vertical;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--river);
+  box-shadow: 0 0 0 3px rgba(30, 111, 92, 0.15);
+}
+
+.form-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.inline-fields {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.inline-fields input {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--outline);
+  font-size: 1rem;
+  background: #fff;
+  min-width: 120px;
+}
+
+.inline-fields input:focus {
+  outline: none;
+  border-color: var(--river);
+  box-shadow: 0 0 0 3px rgba(30, 111, 92, 0.15);
+}
+
+.field-divider {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.team-group {
+  display: grid;
+  gap: 12px;
+}
+
+.team-list {
+  display: grid;
+  gap: 16px;
+}
+
+.team-card {
+  border: 1px solid var(--outline);
+  border-radius: 18px;
+  padding: 18px;
+  background: #fff;
+  display: grid;
+  gap: 14px;
+}
+
 .field label {
   font-size: 0.9rem;
   font-weight: 600;

@@ -24,6 +24,9 @@
             <h2>Sync status</h2>
             <button type="button" id="refresh-leaderboard" class="ghost">Refresh board</button>
           </div>
+          <div class="status ok" id="compare-timer" data-interval-seconds="{{ compare_interval_seconds }}">
+            Next sync check in {{ compare_interval_seconds }}s
+          </div>
           <div id="leaderboard-list" class="students-list"></div>
         </div>
       </section>

@@ -31,6 +31,85 @@
             {% if automation_enabled %}Stop automation{% else %}Start automation{% endif %}
           </button>
         </form>
+        <form method="post" action="/admin/interval" class="admin-actions">
+          <label class="form-label">
+            Auto-fill interval range (seconds)
+          </label>
+          <div class="inline-fields">
+            <input
+              type="number"
+              name="auto_interval_min"
+              min="1"
+              value="{{ auto_interval_min }}"
+              required
+            />
+            <span class="field-divider">to</span>
+            <input
+              type="number"
+              name="auto_interval_max"
+              min="1"
+              value="{{ auto_interval_max }}"
+              required
+            />
+          </div>
+          <button type="submit">Update interval</button>
+        </form>
+        <div class="results-header">
+          <h2>Teams</h2>
+        </div>
+        <form method="post" action="/admin/teams" class="admin-actions">
+          <label class="form-label">Create team</label>
+          <div class="inline-fields">
+            <input type="text" name="lab" value="lab1" placeholder="lab1" required />
+            <input type="text" name="name" placeholder="Team name" required />
+          </div>
+          <textarea
+            name="members"
+            rows="3"
+            placeholder="Members (comma-separated)"
+            required
+          ></textarea>
+          <button type="submit">Add team</button>
+        </form>
+        {% if teams %}
+        {% for group in teams|groupby('lab') %}
+        <div class="team-group">
+          <h3>{{ group.grouper | upper }}</h3>
+          <div class="team-list">
+            {% for team in group.list %}
+            <form method="post" action="/admin/teams/{{ team.id }}/update" class="team-card">
+              <div class="inline-fields">
+                <input type="text" name="lab" value="{{ team.lab }}" required />
+                <input type="text" name="name" value="{{ team.name }}" required />
+              </div>
+              <textarea name="members" rows="3" required>{{ team.members }}</textarea>
+              <div class="inline-fields">
+                <button type="submit">Update</button>
+                <button type="submit" formaction="/admin/teams/{{ team.id }}/delete" class="ghost">
+                  Delete
+                </button>
+              </div>
+            </form>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p>No teams configured yet.</p>
+        {% endif %}
+        <div class="results-header">
+          <h2>Submissions</h2>
+        </div>
+        <form method="post" action="/admin/submissions/delete" class="admin-actions">
+          <label class="form-label">Delete submission by URL</label>
+          <input
+            type="url"
+            name="url"
+            placeholder="https://example.com"
+            required
+          />
+          <button type="submit" class="ghost">Delete submission</button>
+        </form>
         <form method="post" action="/admin/logout">
           <button type="submit" class="ghost">Log out</button>
         </form>

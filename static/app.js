@@ -11,6 +11,7 @@ const refreshStudentsBtn = document.getElementById("refresh-students");
 const studentsList = document.getElementById("students-list");
 const refreshLeaderboardBtn = document.getElementById("refresh-leaderboard");
 const leaderboardList = document.getElementById("leaderboard-list");
+const compareTimer = document.getElementById("compare-timer");
 
 let socket;
 const MAX_LOG_LINES = 200;
@@ -250,11 +251,33 @@ function connectSocket() {
   });
 }
 
+function startCompareCountdown() {
+  if (!compareTimer) {
+    return;
+  }
+  const intervalSeconds = Number(compareTimer.dataset.intervalSeconds || "0");
+  if (!intervalSeconds) {
+    return;
+  }
+  let remaining = intervalSeconds;
+  const tick = () => {
+    compareTimer.textContent = `Next sync check in ${remaining}s`;
+    remaining -= 1;
+    if (remaining < 0) {
+      remaining = intervalSeconds;
+      refreshLeaderboard();
+    }
+  };
+  tick();
+  setInterval(tick, 1000);
+}
+
 if (logBox) {
   connectSocket();
 }
 refreshStudents();
 refreshLeaderboard();
+startCompareCountdown();
 
 if (refreshStudentsBtn) {
   refreshStudentsBtn.addEventListener("click", refreshStudents);

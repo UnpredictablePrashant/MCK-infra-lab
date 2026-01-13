@@ -22,6 +22,7 @@ jobs:
           script: |
             set -euo pipefail
             mkdir -p /home/ubuntu/app
+            mkdir -p /home/ubuntu/data
             rm -rf /home/ubuntu/app/*
 
       - name: Copy app to EC2
@@ -32,6 +33,7 @@ jobs:
           key: ${{ secrets.EC_PRIVATE_KEY }}
           source: "."
           target: "/home/ubuntu/app"
+          exclude: "app.db"
 
       - name: Build and run container
         uses: appleboy/ssh-action@v1.0.3
@@ -45,4 +47,5 @@ jobs:
             if sudo docker ps -a --format '{{.Names}}' | grep -q '^mck-infra-lab$'; then
               sudo docker rm -f mck-infra-lab
             fi
-            sudo docker run -d --restart unless-stopped -p 80:8000 --name mck-infra-lab mck-infra-lab
+            sudo docker run --rm -v /home/ubuntu/data:/data -e DB_PATH=/data/app.db mck-infra-lab python3 migrate_db.py
+            sudo docker run -d --restart unless-stopped -p 80:8000 --name mck-infra-lab -v /home/ubuntu/data:/data -e DB_PATH=/data/app.db mck-infra-lab
