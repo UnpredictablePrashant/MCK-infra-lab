@@ -113,6 +113,7 @@ def admin_panel():
         automation_paused_seconds=paused_seconds,
         next_fill_in_seconds=next_fill_in,
         next_fill_entry_text=next_auto_fill_entry_text,
+        baseline_url=get_setting("baseline_url", DEFAULT_BASELINE_URL),
     )
 
 
@@ -226,6 +227,17 @@ def admin_team_delete(team_id):
     return redirect(url_for("admin_panel"))
 
 
+@app.post("/admin/baseline")
+def admin_baseline_update():
+    if not session.get("admin"):
+        return redirect(url_for("admin_login"))
+    baseline_url = (request.form.get("baseline_url") or "").strip()
+    if not is_valid_url(baseline_url):
+        return redirect(url_for("admin_panel"))
+    set_setting("baseline_url", baseline_url)
+    return redirect(url_for("admin_panel"))
+
+
 @app.post("/admin/submissions/delete")
 def admin_submission_delete():
     if not session.get("admin"):
@@ -247,6 +259,39 @@ def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def get_setting(key, fallback=None):
+    with db_lock:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+        finally:
+            conn.close()
+    return row["value"] if row else fallback
+
+
+def set_setting(key, value):
+    now = int(time.time())
+    with db_lock:
+        conn = get_db()
+        try:
+            conn.execute(
+                """
+                INSERT INTO settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value,
+                    updated_at=excluded.updated_at
+                """,
+                (key, value, now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
 
 def init_db():
@@ -468,7 +513,7 @@ def compare():
     name = (payload.get("name") or "").strip()
     target_url = (payload.get("url") or "").strip()
     baseline_url = (payload.get("baseline_url") or "").strip() or os.environ.get(
-        "BASELINE_URL", DEFAULT_BASELINE_URL
+        "BASELINE_URL", get_setting("baseline_url", DEFAULT_BASELINE_URL)
     )
 
     if not name:
@@ -652,7 +697,9 @@ def run_fill_loop():
             broadcast_fill_meta()
             time.sleep(random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS))
             continue
-        baseline_url = os.environ.get("BASELINE_URL", DEFAULT_BASELINE_URL)
+        baseline_url = os.environ.get(
+            "BASELINE_URL", get_setting("baseline_url", DEFAULT_BASELINE_URL)
+        )
         if not is_valid_url(baseline_url):
             wait_seconds = random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS)
             last_auto_fill_wait_seconds = wait_seconds
@@ -769,7 +816,9 @@ def run_fill_loop():
 
 def run_compare_loop():
     while True:
-        baseline_url = os.environ.get("BASELINE_URL", DEFAULT_BASELINE_URL)
+        baseline_url = os.environ.get(
+            "BASELINE_URL", get_setting("baseline_url", DEFAULT_BASELINE_URL)
+        )
         if not is_valid_url(baseline_url):
             time.sleep(COMPARE_INTERVAL_SECONDS)
             continue

@@ -41,6 +41,16 @@
         <div class="status">
           Total paused time: {{ automation_paused_seconds }}s
         </div>
+        <form method="post" action="/admin/baseline" class="admin-actions">
+          <label class="form-label">Baseline URL</label>
+          <input
+            type="url"
+            name="baseline_url"
+            value="{{ baseline_url }}"
+            required
+          />
+          <button type="submit">Update baseline</button>
+        </form>
         <form method="post" action="/admin/toggle" class="admin-actions">
           <button type="submit">
             {% if automation_enabled %}Stop automation{% else %}Start automation{% endif %}
