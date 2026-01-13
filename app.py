@@ -428,14 +428,16 @@ def compare():
     with active_fill_lock:
         if not fill_active:
             fill_active = True
+            shared_seed = int(time.time())
             job_payload = {
                 "url": target_url,
+                "baseline_url": baseline_url,
                 "iterations": 1,
                 "mode": FILL_MODE,
                 "min_wait": 1,
                 "max_wait": 2,
                 "headless": True,
-                "seed": None,
+                "seed": shared_seed,
                 "entry_mode": "local",
             }
             broadcast("fill_start", {"message": f"New app detected. Filling {target_url}."})
@@ -484,6 +486,21 @@ def ws_handler(ws):
 def run_fill_job(payload):
     global fill_active
     try:
+        baseline_url = payload.get("baseline_url")
+        if baseline_url:
+            run_fill_session(
+                url=baseline_url,
+                mode=payload["mode"],
+                iterations=payload["iterations"],
+                min_wait=payload["min_wait"],
+                max_wait=payload["max_wait"],
+                headless=payload["headless"],
+                seed=payload["seed"],
+                entry_mode=payload["entry_mode"],
+                log_cb=lambda message: broadcast(
+                    "fill_log", {"message": f"[baseline] {message}"}
+                ),
+            )
         run_fill_session(
             url=payload["url"],
             mode=payload["mode"],
@@ -534,6 +551,7 @@ def run_fill_loop():
 
         try:
             broadcast("fill_start", {"message": "Auto-fill: baseline + student apps."})
+            shared_seed = int(time.time())
             run_fill_session(
                 url=baseline_url,
                 mode=FILL_MODE,
@@ -541,7 +559,7 @@ def run_fill_loop():
                 min_wait=1,
                 max_wait=2,
                 headless=True,
-                seed=None,
+                seed=shared_seed,
                 entry_mode="local",
                 log_cb=lambda message: broadcast("fill_log", {"message": f"[baseline] {message}"}),
             )
@@ -563,7 +581,7 @@ def run_fill_loop():
                     min_wait=1,
                     max_wait=2,
                     headless=True,
-                    seed=None,
+                    seed=shared_seed,
                     entry_mode="local",
                     log_cb=lambda message: broadcast("fill_log", {"message": f"[{name}] {message}"}),
                 )
