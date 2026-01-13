@@ -289,7 +289,7 @@ def get_entry_text():
         text = raw[start:end]
         return text.replace("\\n", " ").strip()
     except Exception:
-    return "I appreciated a quiet moment and felt grateful."
+        return "I appreciated a quiet moment and felt grateful."
 
 
 def generate_entry_text(entry_mode="ai", seed=None):

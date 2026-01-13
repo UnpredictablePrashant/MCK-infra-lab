@@ -26,6 +26,9 @@
         <div class="status {% if automation_enabled %}ok{% else %}error{% endif %}">
           Automation is {% if automation_enabled %}running{% else %}stopped{% endif %}.
         </div>
+        <div class="status">
+          Total paused time: {{ automation_paused_seconds }}s
+        </div>
         <form method="post" action="/admin/toggle" class="admin-actions">
           <button type="submit">
             {% if automation_enabled %}Stop automation{% else %}Start automation{% endif %}

@@ -41,6 +41,8 @@ active_fill_lock = threading.Lock()
 fill_active = False
 db_lock = threading.Lock()
 automation_enabled = True
+automation_paused_at = None
+automation_total_paused_seconds = 0
 
 FILL_INTERVAL_SECONDS = int(os.environ.get("FILL_INTERVAL_SECONDS", "120"))
 AUTO_INTERVAL_MIN_SECONDS = int(os.environ.get("AUTO_INTERVAL_MIN_SECONDS", "10"))
@@ -91,6 +93,9 @@ def admin_login():
 def admin_panel():
     if not session.get("admin"):
         return redirect(url_for("admin_login"))
+    paused_seconds = automation_total_paused_seconds
+    if automation_paused_at is not None:
+        paused_seconds += int(time.time() - automation_paused_at)
     return render_template(
         "admin_panel.html",
         automation_enabled=automation_enabled,
@@ -98,15 +103,34 @@ def admin_panel():
         auto_interval_max=AUTO_INTERVAL_MAX_SECONDS,
         teams=list_teams(),
         submissions=list_students(),
+        automation_paused_seconds=paused_seconds,
     )
 
 
 @app.post("/admin/toggle")
 def admin_toggle():
-    global automation_enabled
+    global automation_enabled, automation_paused_at, automation_total_paused_seconds
     if not session.get("admin"):
         return redirect(url_for("admin_login"))
     automation_enabled = not automation_enabled
+    now = int(time.time())
+    if not automation_enabled:
+        automation_paused_at = now
+        broadcast("fill_log", {"message": f"Automation paused at {time.ctime(now)}."})
+    else:
+        if automation_paused_at is not None:
+            paused_for = now - automation_paused_at
+            automation_total_paused_seconds += paused_for
+            broadcast(
+                "fill_log",
+                {
+                    "message": (
+                        f"Automation resumed after {paused_for}s paused "
+                        f"(total paused {automation_total_paused_seconds}s)."
+                    )
+                },
+            )
+        automation_paused_at = None
     return redirect(url_for("admin_panel"))
 
 
