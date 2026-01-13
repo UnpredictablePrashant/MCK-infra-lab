@@ -8,7 +8,11 @@ import urllib.request
 import urllib.error
 
 from selenium import webdriver
-from selenium.common.exceptions import ElementNotInteractableException, StaleElementReferenceException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    ElementNotInteractableException,
+    StaleElementReferenceException,
+)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -16,6 +20,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from compare_utils import DEFAULT_COMPARE_ENDPOINTS, compare_endpoints
 
 ENTRY_MODE = "ai"
+ENTRY_TEXT = None
 
 
 def rand_string(min_len=6, max_len=12):
@@ -102,7 +107,24 @@ def fill_select(el):
     choice.click()
 
 
-def submit_form(form):
+def safe_click(driver, element):
+    try:
+        element.click()
+        return True
+    except ElementClickInterceptedException:
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+            driver.execute_script("arguments[0].click();", element)
+            return True
+        except Exception:
+            return False
+    except ElementNotInteractableException:
+        return False
+    except Exception:
+        return False
+
+
+def submit_form(form, driver):
     submit_selectors = [
         "input[type='submit']",
         "button[type='submit']",
@@ -111,29 +133,20 @@ def submit_form(form):
     for selector in submit_selectors:
         buttons = form.find_elements(By.CSS_SELECTOR, selector)
         if buttons:
-            try:
-                buttons[0].click()
-                return
-            except ElementNotInteractableException:
-                continue
-    try:
-        form.submit()
-    except Exception:
-        pass
+            for btn in buttons:
+                if safe_click(driver, btn):
+                    return
 
 
-def submit_row(row):
+def submit_row(row, driver):
     buttons = row.find_elements(By.CSS_SELECTOR, "button")
     if not buttons:
         return
     for btn in buttons:
         if btn.is_enabled():
-            btn.click()
-            return
-    try:
-        buttons[0].click()
-    except Exception:
-        pass
+            if safe_click(driver, btn):
+                return
+    safe_click(driver, buttons[0])
 
 
 def fill_form(form):
@@ -193,8 +206,20 @@ def load_env(path=".env"):
         pass
 
 
+def set_entry_text(value):
+    global ENTRY_TEXT
+    ENTRY_TEXT = value
+
+
+def clear_entry_text():
+    global ENTRY_TEXT
+    ENTRY_TEXT = None
+
+
 def get_entry_text():
     load_env()
+    if ENTRY_TEXT is not None:
+        return ENTRY_TEXT
     if ENTRY_MODE == "local":
         return random.choice(
             [
@@ -264,7 +289,15 @@ def get_entry_text():
         text = raw[start:end]
         return text.replace("\\n", " ").strip()
     except Exception:
-        return "I appreciated a quiet moment and felt grateful."
+    return "I appreciated a quiet moment and felt grateful."
+
+
+def generate_entry_text(entry_mode="ai", seed=None):
+    global ENTRY_MODE
+    ENTRY_MODE = entry_mode
+    if seed is not None:
+        random.seed(seed)
+    return get_entry_text()
 
 
 def run_fill_session(
@@ -276,6 +309,7 @@ def run_fill_session(
     headless=False,
     seed=None,
     entry_mode="ai",
+    entry_text=None,
     log_cb=None,
 ):
     if seed is not None:
@@ -283,6 +317,8 @@ def run_fill_session(
 
     global ENTRY_MODE
     ENTRY_MODE = entry_mode
+    if entry_text is not None:
+        set_entry_text(entry_text)
 
     driver = create_driver(headless)
     wait = WebDriverWait(driver, 10)
@@ -300,7 +336,7 @@ def run_fill_session(
                 log(f"Found {len(forms)} form(s); filling {len(targets)}.")
                 for form in targets:
                     fill_form(form)
-                    submit_form(form)
+                    submit_form(form, driver)
                     log("Submitted form.")
                     time.sleep(1)
                 continue
@@ -315,7 +351,7 @@ def run_fill_session(
             for row in targets:
                 fill_row(row)
                 time.sleep(0.2)
-                submit_row(row)
+                submit_row(row, driver)
                 log("Submitted row.")
                 time.sleep(1)
 
@@ -324,6 +360,8 @@ def run_fill_session(
                 log(f"Waiting {wait_seconds}s before next iteration.")
                 time.sleep(wait_seconds)
     finally:
+        if entry_text is not None:
+            clear_entry_text()
         driver.quit()
 
 

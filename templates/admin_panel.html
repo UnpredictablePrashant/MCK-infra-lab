@@ -102,17 +102,26 @@
         </div>
         <form method="post" action="/admin/submissions/delete" class="admin-actions">
           <label class="form-label">Delete submission by URL</label>
-          <input
-            type="url"
-            name="url"
-            placeholder="https://example.com"
-            required
-          />
+          <select name="url" required>
+            <option value="" disabled selected>Select a submission</option>
+            {% if submissions %}
+            {% for submission in submissions %}
+            <option value="{{ submission.url }}">{{ submission.name }} — {{ submission.url }}</option>
+            {% endfor %}
+            {% endif %}
+          </select>
           <button type="submit" class="ghost">Delete submission</button>
         </form>
         <form method="post" action="/admin/logout">
           <button type="submit" class="ghost">Log out</button>
         </form>
+      </section>
+      <section class="panel">
+        <div class="results-header">
+          <h2>Auto-fill logs</h2>
+          <span id="log-count">0 entries</span>
+        </div>
+        <div class="log-box" id="log-box"></div>
       </section>
     </main>
   </body>

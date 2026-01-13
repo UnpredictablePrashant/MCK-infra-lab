@@ -10,7 +10,7 @@ from flask import Flask, jsonify, render_template, request, session, redirect, u
 from flask_sock import Sock
 
 from compare_utils import DEFAULT_COMPARE_ENDPOINTS, compare_endpoints
-from form_filler import run_fill_session
+from form_filler import generate_entry_text, run_fill_session
 from migrate_db import run as run_migrations
 
 
@@ -97,6 +97,7 @@ def admin_panel():
         auto_interval_min=AUTO_INTERVAL_MIN_SECONDS,
         auto_interval_max=AUTO_INTERVAL_MAX_SECONDS,
         teams=list_teams(),
+        submissions=list_students(),
     )
 
 
@@ -439,6 +440,8 @@ def compare():
                 "headless": True,
                 "seed": shared_seed,
                 "entry_mode": "local",
+                "entry_text": generate_entry_text("local", seed=shared_seed),
+                "target_name": name,
             }
             broadcast("fill_start", {"message": f"New app detected. Filling {target_url}."})
             thread = threading.Thread(target=run_fill_job, args=(job_payload,), daemon=True)
@@ -487,9 +490,47 @@ def run_fill_job(payload):
     global fill_active
     try:
         baseline_url = payload.get("baseline_url")
+        entry_text = payload.get("entry_text")
         if baseline_url:
+            if entry_text:
+                broadcast(
+                    "fill_log",
+                    {"message": f"[baseline] entry: {entry_text}"},
+                )
+            try:
+                run_fill_session(
+                    url=baseline_url,
+                    mode=payload["mode"],
+                    iterations=payload["iterations"],
+                    min_wait=payload["min_wait"],
+                    max_wait=payload["max_wait"],
+                    headless=payload["headless"],
+                    seed=payload["seed"],
+                    entry_mode=payload["entry_mode"],
+                    entry_text=entry_text,
+                    log_cb=lambda message: broadcast(
+                        "fill_log", {"message": f"[baseline] {message}"}
+                    ),
+                )
+            except Exception as exc:
+                broadcast(
+                    "fill_error",
+                    {"message": f"Auto-fill failed for baseline ({baseline_url}): {exc}"},
+                )
+                return
+        try:
+            if entry_text:
+                broadcast(
+                    "fill_log",
+                    {
+                        "message": (
+                            f"[{payload.get('target_name', 'target')}] "
+                            f"{payload['url']} entry: {entry_text}"
+                        )
+                    },
+                )
             run_fill_session(
-                url=baseline_url,
+                url=payload["url"],
                 mode=payload["mode"],
                 iterations=payload["iterations"],
                 min_wait=payload["min_wait"],
@@ -497,21 +538,17 @@ def run_fill_job(payload):
                 headless=payload["headless"],
                 seed=payload["seed"],
                 entry_mode=payload["entry_mode"],
+                entry_text=entry_text,
                 log_cb=lambda message: broadcast(
-                    "fill_log", {"message": f"[baseline] {message}"}
+                    "fill_log", {"message": f"[target] {message}"}
                 ),
             )
-        run_fill_session(
-            url=payload["url"],
-            mode=payload["mode"],
-            iterations=payload["iterations"],
-            min_wait=payload["min_wait"],
-            max_wait=payload["max_wait"],
-            headless=payload["headless"],
-            seed=payload["seed"],
-            entry_mode=payload["entry_mode"],
-            log_cb=lambda message: broadcast("fill_log", {"message": message}),
-        )
+        except Exception as exc:
+            broadcast(
+                "fill_error",
+                {"message": f"Auto-fill failed for target ({payload['url']}): {exc}"},
+            )
+            return
         broadcast("fill_done", {"message": "Form filling complete."})
     except Exception as exc:
         broadcast("fill_error", {"message": f"Form filling failed: {exc}"})
@@ -552,17 +589,30 @@ def run_fill_loop():
         try:
             broadcast("fill_start", {"message": "Auto-fill: baseline + student apps."})
             shared_seed = int(time.time())
-            run_fill_session(
-                url=baseline_url,
-                mode=FILL_MODE,
-                iterations=FILL_ITERATIONS,
-                min_wait=1,
-                max_wait=2,
-                headless=True,
-                seed=shared_seed,
-                entry_mode="local",
-                log_cb=lambda message: broadcast("fill_log", {"message": f"[baseline] {message}"}),
-            )
+            entry_text = generate_entry_text("local", seed=shared_seed)
+            if entry_text:
+                broadcast("fill_log", {"message": f"[baseline] entry: {entry_text}"})
+            try:
+                run_fill_session(
+                    url=baseline_url,
+                    mode=FILL_MODE,
+                    iterations=FILL_ITERATIONS,
+                    min_wait=1,
+                    max_wait=2,
+                    headless=True,
+                    seed=shared_seed,
+                    entry_mode="local",
+                    entry_text=entry_text,
+                    log_cb=lambda message: broadcast(
+                        "fill_log", {"message": f"[baseline] {message}"}
+                    ),
+                )
+            except Exception as exc:
+                broadcast(
+                    "fill_error",
+                    {"message": f"Auto-fill failed for baseline ({baseline_url}): {exc}"},
+                )
+                continue
 
             students = list_students()
 
@@ -574,17 +624,32 @@ def run_fill_loop():
                     broadcast("fill_log", {"message": f"[{name}] invalid URL; skipped."})
                     continue
                 broadcast("fill_log", {"message": f"[{name}] filling {url}"})
-                run_fill_session(
-                    url=url,
-                    mode=FILL_MODE,
-                    iterations=FILL_ITERATIONS,
-                    min_wait=1,
-                    max_wait=2,
-                    headless=True,
-                    seed=shared_seed,
-                    entry_mode="local",
-                    log_cb=lambda message: broadcast("fill_log", {"message": f"[{name}] {message}"}),
-                )
+                try:
+                    if entry_text:
+                        broadcast(
+                            "fill_log",
+                            {"message": f"[{name}] entry: {entry_text}"},
+                        )
+                    run_fill_session(
+                        url=url,
+                        mode=FILL_MODE,
+                        iterations=FILL_ITERATIONS,
+                        min_wait=1,
+                        max_wait=2,
+                        headless=True,
+                        seed=shared_seed,
+                        entry_mode="local",
+                        entry_text=entry_text,
+                        log_cb=lambda message: broadcast(
+                            "fill_log", {"message": f"[{name}] {message}"}
+                        ),
+                    )
+                except Exception as exc:
+                    broadcast(
+                        "fill_error",
+                        {"message": f"Auto-fill failed for {name} ({url}): {exc}"},
+                    )
+                    continue
                 compare_and_update(url, name, baseline_url)
             broadcast("fill_done", {"message": "Auto-fill cycle complete."})
         except Exception as exc:
