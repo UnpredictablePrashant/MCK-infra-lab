@@ -12,9 +12,12 @@ const studentsList = document.getElementById("students-list");
 const refreshLeaderboardBtn = document.getElementById("refresh-leaderboard");
 const leaderboardList = document.getElementById("leaderboard-list");
 const compareTimer = document.getElementById("compare-timer");
+const autoFillTimer = document.getElementById("auto-fill-timer");
+const autoFillEntry = document.getElementById("auto-fill-entry");
 
 let socket;
 const MAX_LOG_LINES = 200;
+let autoFillRemaining = null;
 
 function setStatus(message, kind) {
   if (!statusBox) {
@@ -240,6 +243,23 @@ function connectSocket() {
         addLogLine(data.payload.message);
       } else if (data.event === "fill_error") {
         addLogLine(data.payload.message);
+      } else if (data.event === "fill_meta") {
+        if (autoFillTimer) {
+          const nextIn = data.payload.next_in_seconds;
+          if (nextIn === null || nextIn === undefined) {
+            const status = data.payload.status || "pending";
+            autoFillTimer.textContent =
+              status === "paused" ? "Automation paused" : "Next auto-fill time pending";
+            autoFillRemaining = null;
+          } else {
+            autoFillTimer.dataset.nextSeconds = String(nextIn);
+            autoFillTimer.textContent = `Next auto-fill in ${nextIn}s`;
+            autoFillRemaining = nextIn;
+          }
+        }
+        if (autoFillEntry) {
+          autoFillEntry.textContent = data.payload.entry_text || "Pending";
+        }
       }
     } catch (err) {
       console.error(err);
@@ -272,12 +292,32 @@ function startCompareCountdown() {
   setInterval(tick, 1000);
 }
 
+function startAutoFillCountdown() {
+  if (!autoFillTimer) {
+    return;
+  }
+  autoFillRemaining = Number(autoFillTimer.dataset.nextSeconds || "0") || null;
+  const tick = () => {
+    if (autoFillRemaining === null) {
+      return;
+    }
+    autoFillTimer.textContent = `Next auto-fill in ${autoFillRemaining}s`;
+    autoFillRemaining -= 1;
+    if (autoFillRemaining < 0) {
+      autoFillRemaining = 0;
+    }
+  };
+  tick();
+  setInterval(tick, 1000);
+}
+
 if (logBox) {
   connectSocket();
 }
 refreshStudents();
 refreshLeaderboard();
 startCompareCountdown();
+startAutoFillCountdown();
 
 if (refreshStudentsBtn) {
   refreshStudentsBtn.addEventListener("click", refreshStudents);

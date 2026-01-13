@@ -26,6 +26,18 @@
         <div class="status {% if automation_enabled %}ok{% else %}error{% endif %}">
           Automation is {% if automation_enabled %}running{% else %}stopped{% endif %}.
         </div>
+        <div class="status" id="auto-fill-timer" data-next-seconds="{{ next_fill_in_seconds or 0 }}">
+          {% if automation_enabled and next_fill_in_seconds is not none %}
+          Next auto-fill in {{ next_fill_in_seconds }}s
+          {% elif automation_enabled %}
+          Next auto-fill time pending
+          {% else %}
+          Automation paused
+          {% endif %}
+        </div>
+        <div class="status">
+          Next entry: <span id="auto-fill-entry">{{ next_fill_entry_text or "Pending" }}</span>
+        </div>
         <div class="status">
           Total paused time: {{ automation_paused_seconds }}s
         </div>

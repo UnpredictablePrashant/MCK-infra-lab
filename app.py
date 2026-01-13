@@ -43,6 +43,10 @@ db_lock = threading.Lock()
 automation_enabled = True
 automation_paused_at = None
 automation_total_paused_seconds = 0
+next_auto_fill_at = None
+next_auto_fill_entry_text = None
+next_auto_fill_seed = None
+last_auto_fill_wait_seconds = None
 
 FILL_INTERVAL_SECONDS = int(os.environ.get("FILL_INTERVAL_SECONDS", "120"))
 AUTO_INTERVAL_MIN_SECONDS = int(os.environ.get("AUTO_INTERVAL_MIN_SECONDS", "10"))
@@ -96,6 +100,9 @@ def admin_panel():
     paused_seconds = automation_total_paused_seconds
     if automation_paused_at is not None:
         paused_seconds += int(time.time() - automation_paused_at)
+    next_fill_in = None
+    if next_auto_fill_at is not None:
+        next_fill_in = max(0, int(next_auto_fill_at - time.time()))
     return render_template(
         "admin_panel.html",
         automation_enabled=automation_enabled,
@@ -104,18 +111,25 @@ def admin_panel():
         teams=list_teams(),
         submissions=list_students(),
         automation_paused_seconds=paused_seconds,
+        next_fill_in_seconds=next_fill_in,
+        next_fill_entry_text=next_auto_fill_entry_text,
     )
 
 
 @app.post("/admin/toggle")
 def admin_toggle():
     global automation_enabled, automation_paused_at, automation_total_paused_seconds
+    global next_auto_fill_at, next_auto_fill_entry_text, next_auto_fill_seed
     if not session.get("admin"):
         return redirect(url_for("admin_login"))
     automation_enabled = not automation_enabled
     now = int(time.time())
     if not automation_enabled:
         automation_paused_at = now
+        next_auto_fill_at = None
+        next_auto_fill_entry_text = None
+        next_auto_fill_seed = None
+        broadcast_fill_meta()
         broadcast("fill_log", {"message": f"Automation paused at {time.ctime(now)}."})
     else:
         if automation_paused_at is not None:
@@ -131,7 +145,32 @@ def admin_toggle():
                 },
             )
         automation_paused_at = None
+        broadcast_fill_meta()
     return redirect(url_for("admin_panel"))
+
+
+def broadcast_fill_meta():
+    if not automation_enabled:
+        broadcast(
+            "fill_meta",
+            {"next_in_seconds": None, "entry_text": None, "status": "paused"},
+        )
+        return
+    if next_auto_fill_at is None:
+        broadcast(
+            "fill_meta",
+            {"next_in_seconds": None, "entry_text": None, "status": "pending"},
+        )
+        return
+    next_in = max(0, int(next_auto_fill_at - time.time()))
+    broadcast(
+        "fill_meta",
+        {
+            "next_in_seconds": next_in,
+            "entry_text": next_auto_fill_entry_text,
+            "status": "scheduled",
+        },
+    )
 
 
 @app.post("/admin/interval")
@@ -542,6 +581,10 @@ def run_fill_job(payload):
                     {"message": f"Auto-fill failed for baseline ({baseline_url}): {exc}"},
                 )
                 return
+            broadcast(
+                "fill_log",
+                {"message": f"[baseline] fill completed for {baseline_url}"},
+            )
         try:
             if entry_text:
                 broadcast(
@@ -573,6 +616,11 @@ def run_fill_job(payload):
                 {"message": f"Auto-fill failed for target ({payload['url']}): {exc}"},
             )
             return
+        target_label = payload.get("target_name") or "target"
+        broadcast(
+            "fill_log",
+            {"message": f"[{target_label}] fill completed for {payload['url']}"},
+        )
         broadcast("fill_done", {"message": "Form filling complete."})
     except Exception as exc:
         broadcast("fill_error", {"message": f"Form filling failed: {exc}"})
@@ -594,26 +642,51 @@ def compare_and_update(target_url, name, baseline_url):
 
 
 def run_fill_loop():
-    global fill_active
+    global fill_active, next_auto_fill_at, next_auto_fill_entry_text, next_auto_fill_seed
+    global last_auto_fill_wait_seconds
     while True:
         if not automation_enabled:
+            next_auto_fill_at = None
+            next_auto_fill_entry_text = None
+            next_auto_fill_seed = None
+            broadcast_fill_meta()
             time.sleep(random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS))
             continue
         baseline_url = os.environ.get("BASELINE_URL", DEFAULT_BASELINE_URL)
         if not is_valid_url(baseline_url):
-            time.sleep(random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS))
+            wait_seconds = random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS)
+            last_auto_fill_wait_seconds = wait_seconds
+            next_auto_fill_at = time.time() + wait_seconds
+            next_auto_fill_seed = int(next_auto_fill_at)
+            next_auto_fill_entry_text = generate_entry_text("local", seed=next_auto_fill_seed)
+            broadcast_fill_meta()
+            time.sleep(wait_seconds)
             continue
 
         with active_fill_lock:
             if fill_active:
-                time.sleep(random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS))
+                wait_seconds = random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS)
+                last_auto_fill_wait_seconds = wait_seconds
+                next_auto_fill_at = time.time() + wait_seconds
+                next_auto_fill_seed = int(next_auto_fill_at)
+                next_auto_fill_entry_text = generate_entry_text("local", seed=next_auto_fill_seed)
+                broadcast_fill_meta()
+                time.sleep(wait_seconds)
                 continue
             fill_active = True
 
         try:
             broadcast("fill_start", {"message": "Auto-fill: baseline + student apps."})
-            shared_seed = int(time.time())
-            entry_text = generate_entry_text("local", seed=shared_seed)
+            if next_auto_fill_entry_text is not None and next_auto_fill_seed is not None:
+                shared_seed = next_auto_fill_seed
+                entry_text = next_auto_fill_entry_text
+            else:
+                shared_seed = int(time.time())
+                entry_text = generate_entry_text("local", seed=shared_seed)
+            next_auto_fill_at = None
+            next_auto_fill_entry_text = None
+            next_auto_fill_seed = None
+            broadcast_fill_meta()
             if entry_text:
                 broadcast("fill_log", {"message": f"[baseline] entry: {entry_text}"})
             try:
@@ -674,6 +747,10 @@ def run_fill_loop():
                         {"message": f"Auto-fill failed for {name} ({url}): {exc}"},
                     )
                     continue
+                broadcast(
+                    "fill_log",
+                    {"message": f"[{name}] fill completed for {url}"},
+                )
                 compare_and_update(url, name, baseline_url)
             broadcast("fill_done", {"message": "Auto-fill cycle complete."})
         except Exception as exc:
@@ -681,7 +758,13 @@ def run_fill_loop():
         finally:
             with active_fill_lock:
                 fill_active = False
-        time.sleep(random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS))
+        wait_seconds = random.randint(AUTO_INTERVAL_MIN_SECONDS, AUTO_INTERVAL_MAX_SECONDS)
+        last_auto_fill_wait_seconds = wait_seconds
+        next_auto_fill_at = time.time() + wait_seconds
+        next_auto_fill_seed = int(next_auto_fill_at)
+        next_auto_fill_entry_text = generate_entry_text("local", seed=next_auto_fill_seed)
+        broadcast_fill_meta()
+        time.sleep(wait_seconds)
 
 
 def run_compare_loop():
