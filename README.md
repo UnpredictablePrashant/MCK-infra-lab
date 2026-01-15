@@ -94,3 +94,68 @@ but the workflow below is the standard approach.
 ## Notes
 - The leaderboard is persisted in SQLite (`app.db`).
 - Logs are capped in the UI to avoid excessive memory usage.
+
+# Lab 2: Terraform Modules (Files Service + S3)
+
+This lab teaches how to extend infrastructure with Terraform modules for a new
+microservice. You will add a files-service that uses S3 for uploads, listings,
+and downloads.
+
+## What the Dev Team Already Built
+- Files service (Node/Express + AWS SDK + multer) with routes under `/api/files/*`.
+- UI wiring for uploads, list, and downloads in `MainComponent.js`.
+- Kubernetes manifests:
+  - `files-service-deployment.yml`
+  - `files-service-cluster-ip-service.yml`
+  - `ingress-service.yml` routing `/api/files/*`
+- Docker images:
+  - `prashantdey/merndemoapp:fileservice1.0`
+  - `prashantdey/merndemoapp:clientv1.0`
+- Required env vars for the service: `S3_BUCKET`, `S3_PREFIX`, `AWS_REGION`.
+- IRSA setup:
+  - IAM policy with `s3:PutObject`, `s3:GetObject`, `s3:ListBucket`.
+  - Service account `files-service-sa` bound to that policy.
+  - Deployment updated to use the service account.
+- Moods table fixes (permanent):
+  - `postgres-init-config.yml` and `postgres-migrate-job.yml`.
+
+## Your Task
+Create Terraform modules so the infra changes above are reproducible.
+
+### 1) Build a Files Service Module
+Your module should:
+- Create the IRSA IAM policy and role.
+- Create or reference the S3 bucket.
+- Create the Kubernetes service account with the IRSA annotation.
+- Deploy the Kubernetes manifests for:
+  - files-service deployment
+  - ClusterIP service
+  - Ingress route `/api/files/*`
+
+Suggested inputs:
+- Cluster name/region, namespace, OIDC provider ARN/URL.
+- Image tags for files-service and client (if managed in Terraform).
+- `S3_BUCKET`, `S3_PREFIX`, `AWS_REGION`.
+
+Suggested outputs:
+- Bucket name, service account name, and any service/ingress endpoints.
+
+### 2) Wire It Into the Root Stack
+- Call the module from your root Terraform configuration.
+- Ensure dependencies are ordered: S3 + IAM + IRSA before the deployment.
+- Keep the service account name consistent with `files-service-sa`.
+
+### 3) Apply Order (for reference)
+1. `postgres-init-config.yml`
+2. `postgres-migrate-job.yml`
+3. S3 + IAM + IRSA resources
+4. files-service deployment, service, and ingress
+
+## Acceptance Criteria
+- Files upload to S3, list correctly, and can be downloaded.
+- The files-service pod runs with the IRSA service account (no static AWS keys).
+- Ingress routes `/api/files/*` to the files-service.
+
+## Tips
+- Use module outputs to pass the bucket name into the Kubernetes deployment.
+- Keep the policy scope limited to the bucket and prefix.

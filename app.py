@@ -69,6 +69,11 @@ def lab1():
     return render_template("lab1.html", teams=list_teams("lab1"))
 
 
+@app.get("/lab2")
+def lab2():
+    return render_template("lab2.html", teams=list_teams("lab2"))
+
+
 @app.get("/leaderboard")
 def leaderboard_page():
     return render_template(
