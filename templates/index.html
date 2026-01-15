@@ -3,82 +3,81 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Migration Sync Verifier</title>
+    <title>MCK Infra Lab Hub</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <div class="noise"></div>
+    <header class="topbar">
+      <div class="brand">MCK Infra Labs</div>
+      <nav class="top-links">
+        <a class="ghost-link" href="/admin">Admin</a>
+      </nav>
+    </header>
+
     <main class="page">
-      <section class="hero">
-        <div class="badge">Migration Lab</div>
-        <h1>Lab 1: Migration Sync Verifier</h1>
+      <section class="hero hub-hero">
+        <div class="badge">Lab Hub</div>
+        <h1>All labs, setups, and validation in one place.</h1>
         <p>
-          Verify that your app’s data matches the baseline after database migration.
-          Submit your name and app URL to run a live comparison.
+          Each lab has its own setup checklist, submission flow, and (when available)
+          automated verification. Pick a lab to get started.
         </p>
-        <div class="nav-links">
-          <a class="ghost-link" href="/lab1">Lab 1 overview</a>
-          <a class="ghost-link" href="/lab2">Lab 2 overview</a>
-          <a class="ghost-link" href="/leaderboard">Leaderboard</a>
-          <a class="ghost-link" href="/admin">Admin</a>
+        <div class="hero-actions">
+          <a class="primary-link" href="#labs">Browse labs</a>
+          <a class="ghost-link" href="/leaderboard?lab=lab1">Lab 1 leaderboard</a>
+        </div>
+      </section>
+
+      <section class="panel" id="labs">
+        <div class="results-header">
+          <h2>Lab catalog</h2>
+          <span class="muted">Choose a lab to see setup, submissions, and progress.</span>
+        </div>
+        <div class="lab-grid">
+          {% for lab in labs %}
+          <article class="lab-card">
+            <div class="lab-header">
+              <span class="lab-badge">{{ lab.code }}</span>
+              <span class="lab-status {{ 'live' if lab.status == 'Active' else 'draft' }}">
+                {{ lab.status }}
+              </span>
+            </div>
+            <h3>{{ lab.title }}</h3>
+            <p>{{ lab.summary }}</p>
+            <div class="lab-meta">
+              <span class="pill">Automation: {{ 'Yes' if lab.automation_enabled else 'No' }}</span>
+              <span class="pill">Leaderboard: {{ 'Yes' if lab.leaderboard_enabled else 'No' }}</span>
+              <span class="pill">Verifier: {{ 'Enabled' if lab.compare_enabled else 'Manual' }}</span>
+            </div>
+            <div class="lab-actions">
+              <a class="ghost-link" href="/labs/{{ lab.id }}">Open lab</a>
+              {% if lab.leaderboard_enabled %}
+              <a class="ghost-link" href="/leaderboard?lab={{ lab.id }}">Leaderboard</a>
+              {% endif %}
+            </div>
+          </article>
+          {% endfor %}
         </div>
       </section>
 
       <section class="panel">
-        <form id="compare-form">
-          <div class="field">
-            <label for="name">Student name</label>
-            <input id="name" name="name" type="text" placeholder="e.g. Priya Patel" required />
-          </div>
-          <div class="field">
-            <label for="url">Student app URL</label>
-            <input
-              id="url"
-              name="url"
-              type="url"
-              placeholder="https://your-app.example.com"
-              required
-            />
-          </div>
-          <button type="submit" id="submit-btn">
-            Run comparison
-          </button>
-        </form>
-
-        <div id="status" class="status hidden"></div>
-
-        <div id="results" class="results hidden">
-          <div class="results-header">
-            <h2>Comparison results</h2>
-            <span id="elapsed"></span>
-          </div>
-          <div id="summary" class="summary"></div>
-          <div id="result-list" class="result-list"></div>
+        <div class="results-header">
+          <h2>How to use the hub</h2>
         </div>
-
-        <div class="students">
-          <div class="results-header">
-            <h2>Registered apps</h2>
-            <button type="button" id="refresh-students" class="ghost">Refresh list</button>
+        <div class="section-grid">
+          <div class="section-card">
+            <h3>Open a lab</h3>
+            <p>Each lab page includes setup, infra notes, and validation criteria.</p>
           </div>
-          <div id="students-list" class="students-list"></div>
-        </div>
-      </section>
-
-      <section class="notes">
-        <div>
-          <h3>How it works</h3>
-          <p>
-            We compare your API responses to the baseline app across key endpoints and
-            highlight missing or extra records. If everything matches, you’re good.
-          </p>
-        </div>
-        <div>
-          <h3>Tip</h3>
-          <p>
-            Make sure your app is reachable from the internet and has completed DB
-            migrations before running the check.
-          </p>
+          <div class="section-card">
+            <h3>Submit endpoints</h3>
+            <p>Register your URL for automated checks or manual review.</p>
+          </div>
+          <div class="section-card">
+            <h3>Track progress</h3>
+            <p>Leaderboards and logs are scoped to each lab.</p>
+          </div>
         </div>
       </section>
     </main>

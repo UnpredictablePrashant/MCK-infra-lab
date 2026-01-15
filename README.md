@@ -101,6 +101,8 @@ This lab teaches how to extend infrastructure with Terraform modules for a new
 microservice. You will add a files-service that uses S3 for uploads, listings,
 and downloads.
 
+App repo: https://github.com/UnpredictablePrashant/GratitudeApp
+
 ## What the Dev Team Already Built
 - Files service (Node/Express + AWS SDK + multer) with routes under `/api/files/*`.
 - UI wiring for uploads, list, and downloads in `MainComponent.js`.
@@ -140,16 +142,47 @@ Suggested inputs:
 Suggested outputs:
 - Bucket name, service account name, and any service/ingress endpoints.
 
-### 2) Wire It Into the Root Stack
+### 2) Required Module Inputs (Explicit)
+- `s3_bucket_name`
+- `s3_prefix`
+- `aws_region`
+- `cluster_name`
+- `namespace`
+- `oidc_provider_arn`
+- `oidc_provider_url`
+- `files_service_image`
+- `client_image` (optional, if managed in Terraform)
+
+### 3) Module Resources (What to Create)
+- S3 bucket (or data source if pre-existing).
+- IAM policy scoped to the bucket/prefix:
+  - `s3:PutObject`
+  - `s3:GetObject`
+  - `s3:ListBucket`
+- IAM role for IRSA and trust policy for the cluster OIDC provider.
+- Kubernetes service account `files-service-sa` annotated with the role ARN.
+- Kubernetes deployment for files-service with:
+  - env vars: `S3_BUCKET`, `S3_PREFIX`, `AWS_REGION`
+  - `serviceAccountName: files-service-sa`
+- ClusterIP service for files-service.
+- Ingress route `/api/files/*`.
+
+### 4) Wire It Into the Root Stack
 - Call the module from your root Terraform configuration.
 - Ensure dependencies are ordered: S3 + IAM + IRSA before the deployment.
 - Keep the service account name consistent with `files-service-sa`.
 
-### 3) Apply Order (for reference)
+### 5) Apply Order (for reference)
 1. `postgres-init-config.yml`
 2. `postgres-migrate-job.yml`
 3. S3 + IAM + IRSA resources
 4. files-service deployment, service, and ingress
+
+### 6) Validation Checklist
+- Files upload to S3, list correctly, and can be downloaded from the UI.
+- `files-service` pods run using IRSA (no static AWS keys).
+- Ingress routes `/api/files/*` to the files-service.
+- Terraform plan/apply is repeatable without manual kubectl steps.
 
 ## Acceptance Criteria
 - Files upload to S3, list correctly, and can be downloaded.

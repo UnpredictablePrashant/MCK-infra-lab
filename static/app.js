@@ -14,6 +14,8 @@ const leaderboardList = document.getElementById("leaderboard-list");
 const compareTimer = document.getElementById("compare-timer");
 const autoFillTimer = document.getElementById("auto-fill-timer");
 const autoFillEntry = document.getElementById("auto-fill-entry");
+const labContext = document.getElementById("lab-context");
+const activeLabId = labContext ? labContext.dataset.labId : null;
 
 let socket;
 const MAX_LOG_LINES = 200;
@@ -151,7 +153,8 @@ async function refreshStudents() {
     return;
   }
   try {
-    const response = await fetch("/api/students");
+    const query = activeLabId ? `?lab=${encodeURIComponent(activeLabId)}` : "";
+    const response = await fetch(`/api/students${query}`);
     const data = await response.json();
     renderStudents(data);
   } catch (err) {
@@ -164,7 +167,8 @@ async function refreshLeaderboard() {
     return;
   }
   try {
-    const response = await fetch("/api/leaderboard");
+    const query = activeLabId ? `?lab=${encodeURIComponent(activeLabId)}` : "";
+    const response = await fetch(`/api/leaderboard${query}`);
     const data = await response.json();
     renderLeaderboard(data);
   } catch (err) {
@@ -176,10 +180,14 @@ if (form) {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     clearStatus();
-    resultsBox.classList.add("hidden");
+    if (resultsBox) {
+      resultsBox.classList.add("hidden");
+    }
 
     const name = form.elements.name.value.trim();
     const url = form.elements.url.value.trim();
+    const labId = form.dataset.labId || activeLabId;
+    const compareEnabled = form.dataset.compareEnabled === "true";
 
     if (!name || !url) {
       setStatus("Please provide your name and app URL.", "error");
@@ -193,14 +201,18 @@ if (form) {
       const response = await fetch("/api/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, url }),
+        body: JSON.stringify({ name, url, lab: labId }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "Unable to compare.");
       }
-      setStatus(`Comparison complete for ${data.name}.`, "ok");
-      renderResults(data);
+      if (compareEnabled && data.compare_enabled) {
+        setStatus(`Comparison complete for ${data.name}.`, "ok");
+        renderResults(data);
+      } else {
+        setStatus(`Submission saved for ${data.name}.`, "ok");
+      }
       refreshStudents();
       refreshLeaderboard();
     } catch (err) {

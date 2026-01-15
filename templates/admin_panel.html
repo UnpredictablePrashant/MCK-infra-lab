@@ -3,26 +3,40 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Admin Panel | Migration Sync Verifier</title>
+    <title>Admin Panel | MCK Infra Labs</title>
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <div class="noise"></div>
+    <header class="topbar">
+      <div class="brand">MCK Infra Labs</div>
+      <nav class="top-links">
+        <a class="ghost-link" href="/">Lab hub</a>
+        <a class="ghost-link" href="/labs/{{ lab.id }}">Back to {{ lab.code }}</a>
+      </nav>
+    </header>
+
     <main class="page">
-      <section class="hero">
+      <section class="hero admin-hero">
         <div class="badge">Admin</div>
-        <h1>Automation Status</h1>
-        <p>Toggle the auto-fill loop that submits data to apps.</p>
-        <div class="nav-links">
-          <a class="ghost-link" href="/lab1">Lab 1</a>
-          <a class="ghost-link" href="/lab2">Lab 2</a>
-          <a class="ghost-link" href="/leaderboard">Leaderboard</a>
+        <h1>Lab operations</h1>
+        <p>Manage automation, teams, and submissions for each lab.</p>
+        <div class="lab-switch">
+          {% for lab_item in labs %}
+          <a
+            class="pill {% if lab_item.id == lab.id %}active{% endif %}"
+            href="/admin/panel?lab={{ lab_item.id }}"
+          >
+            {{ lab_item.code }}
+          </a>
+          {% endfor %}
         </div>
       </section>
 
+      {% if lab.automation_enabled %}
       <section class="panel">
         <div class="results-header">
-          <h2>Current status</h2>
+          <h2>Automation status ({{ lab.code }})</h2>
         </div>
         <div class="status {% if automation_enabled %}ok{% else %}error{% endif %}">
           Automation is {% if automation_enabled %}running{% else %}stopped{% endif %}.
@@ -42,25 +56,15 @@
         <div class="status">
           Total paused time: {{ automation_paused_seconds }}s
         </div>
-        <form method="post" action="/admin/baseline" class="admin-actions">
-          <label class="form-label">Baseline URL</label>
-          <input
-            type="url"
-            name="baseline_url"
-            value="{{ baseline_url }}"
-            required
-          />
-          <button type="submit">Update baseline</button>
-        </form>
         <form method="post" action="/admin/toggle" class="admin-actions">
+          <input type="hidden" name="lab" value="{{ lab.id }}" />
           <button type="submit">
             {% if automation_enabled %}Stop automation{% else %}Start automation{% endif %}
           </button>
         </form>
         <form method="post" action="/admin/interval" class="admin-actions">
-          <label class="form-label">
-            Auto-fill interval range (seconds)
-          </label>
+          <input type="hidden" name="lab" value="{{ lab.id }}" />
+          <label class="form-label">Auto-fill interval range (seconds)</label>
           <div class="inline-fields">
             <input
               type="number"
@@ -80,13 +84,31 @@
           </div>
           <button type="submit">Update interval</button>
         </form>
+      </section>
+      {% endif %}
+
+      {% if lab.compare_enabled %}
+      <section class="panel">
         <div class="results-header">
-          <h2>Teams</h2>
+          <h2>Baseline ({{ lab.code }})</h2>
+        </div>
+        <form method="post" action="/admin/baseline" class="admin-actions">
+          <input type="hidden" name="lab" value="{{ lab.id }}" />
+          <label class="form-label">Baseline URL</label>
+          <input type="url" name="baseline_url" value="{{ baseline_url }}" required />
+          <button type="submit">Update baseline</button>
+        </form>
+      </section>
+      {% endif %}
+
+      <section class="panel">
+        <div class="results-header">
+          <h2>Teams ({{ lab.code }})</h2>
         </div>
         <form method="post" action="/admin/teams" class="admin-actions">
+          <input type="hidden" name="lab" value="{{ lab.id }}" />
           <label class="form-label">Create team</label>
           <div class="inline-fields">
-            <input type="text" name="lab" value="lab1" placeholder="lab1" required />
             <input type="text" name="name" placeholder="Team name" required />
           </div>
           <textarea
@@ -98,35 +120,34 @@
           <button type="submit">Add team</button>
         </form>
         {% if teams %}
-        {% for group in teams|groupby('lab') %}
-        <div class="team-group">
-          <h3>{{ group.grouper | upper }}</h3>
-          <div class="team-list">
-            {% for team in group.list %}
-            <form method="post" action="/admin/teams/{{ team.id }}/update" class="team-card">
-              <div class="inline-fields">
-                <input type="text" name="lab" value="{{ team.lab }}" required />
-                <input type="text" name="name" value="{{ team.name }}" required />
-              </div>
-              <textarea name="members" rows="3" required>{{ team.members }}</textarea>
-              <div class="inline-fields">
-                <button type="submit">Update</button>
-                <button type="submit" formaction="/admin/teams/{{ team.id }}/delete" class="ghost">
-                  Delete
-                </button>
-              </div>
-            </form>
-            {% endfor %}
-          </div>
+        <div class="team-list">
+          {% for team in teams %}
+          <form method="post" action="/admin/teams/{{ team.id }}/update" class="team-card">
+            <input type="hidden" name="lab" value="{{ lab.id }}" />
+            <div class="inline-fields">
+              <input type="text" name="name" value="{{ team.name }}" required />
+            </div>
+            <textarea name="members" rows="3" required>{{ team.members }}</textarea>
+            <div class="inline-fields">
+              <button type="submit">Update</button>
+              <button type="submit" formaction="/admin/teams/{{ team.id }}/delete" class="ghost">
+                Delete
+              </button>
+            </div>
+          </form>
+          {% endfor %}
         </div>
-        {% endfor %}
         {% else %}
         <p>No teams configured yet.</p>
         {% endif %}
+      </section>
+
+      <section class="panel">
         <div class="results-header">
-          <h2>Submissions</h2>
+          <h2>Submissions ({{ lab.code }})</h2>
         </div>
         <form method="post" action="/admin/submissions/delete" class="admin-actions">
+          <input type="hidden" name="lab" value="{{ lab.id }}" />
           <label class="form-label">Delete submission by URL</label>
           <select name="url" required>
             <option value="" disabled selected>Select a submission</option>
@@ -142,6 +163,8 @@
           <button type="submit" class="ghost">Log out</button>
         </form>
       </section>
+
+      {% if lab.automation_enabled %}
       <section class="panel">
         <div class="results-header">
           <h2>Auto-fill logs</h2>
@@ -149,6 +172,9 @@
         </div>
         <div class="log-box" id="log-box"></div>
       </section>
+      {% endif %}
     </main>
+
+    <script src="/static/app.js"></script>
   </body>
 </html>
