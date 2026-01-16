@@ -192,3 +192,116 @@ Suggested outputs:
 ## Tips
 - Use module outputs to pass the bucket name into the Kubernetes deployment.
 - Keep the policy scope limited to the bucket and prefix.
+
+# Lab 3: CI/CD on GitHub Actions (Self-Hosted Runner + EKS)
+
+This lab extends the GratitudeApp delivery pipeline for a senior profile.
+You will build a production-grade CI/CD workflow on GitHub Actions using a
+self-hosted runner, quality gates with SonarQube, container scanning with
+Trivy, and automated deployment to EKS.
+
+App repo: https://github.com/UnpredictablePrashant/GratitudeApp
+
+## What You Are Building
+You will implement:
+- A self-hosted GitHub Actions runner machine (EC2 or on-prem VM).
+- A CI pipeline with tests, linting, SonarQube analysis, and Trivy scans.
+- A CD pipeline that builds and pushes images, then deploys to EKS.
+- Secure secrets handling and least-privilege access to AWS and the cluster.
+
+## Prerequisites
+- GitHub repo admin access for Actions and secrets.
+- An EKS cluster (existing or created in earlier labs).
+- An ECR repo for container images.
+- A running SonarQube instance with a project + token.
+- A runner machine with Docker, git, and AWS CLI installed.
+
+## Runner Machine Setup
+1) Provision an EC2 instance (t3.medium+ recommended) in the same VPC as EKS.
+2) Install Docker, git, AWS CLI, kubectl, and jq.
+3) Register the self-hosted runner to your repo or org.
+4) Ensure the runner can:
+   - Reach SonarQube (network + token).
+   - Push to ECR.
+   - Access EKS (kubectl auth).
+
+## Pipeline Overview
+Use two workflows:
+1) CI workflow (pull requests):
+   - Install dependencies
+   - Run unit tests
+   - SonarQube analysis + quality gate
+   - Trivy filesystem scan (dependencies)
+2) CD workflow (main branch):
+   - Build Docker image
+   - Trivy image scan
+   - Push image to ECR
+   - Deploy to EKS (kubectl/Helm)
+
+## Required Secrets (GitHub)
+Set these in repo settings:
+- `AWS_REGION`
+- `AWS_ACCOUNT_ID`
+- `ECR_REPOSITORY`
+- `EKS_CLUSTER_NAME`
+- `SONAR_HOST_URL`
+- `SONAR_TOKEN`
+- `KUBECONFIG_B64` (if not using IAM auth on runner)
+
+Optional:
+- `SLACK_WEBHOOK` (deployment notifications)
+
+## Suggested Workflow Files
+Create:
+- `.github/workflows/ci.yml`
+- `.github/workflows/cd.yml`
+
+### ci.yml (example structure)
+- Trigger: `pull_request`
+- Runs on: `self-hosted`
+- Steps:
+  1) Checkout
+  2) Setup Node/Java (if needed)
+  3) Install deps and run tests
+  4) SonarQube scan + quality gate
+  5) Trivy filesystem scan
+
+### cd.yml (example structure)
+- Trigger: `push` to `main`
+- Runs on: `self-hosted`
+- Steps:
+  1) Checkout
+  2) Login to ECR
+  3) Build and tag Docker image
+  4) Trivy image scan
+  5) Push to ECR
+  6) Deploy to EKS (kubectl apply or Helm upgrade)
+  7) Verify rollout status
+
+## SonarQube Notes
+- Enforce a quality gate that blocks CD when it fails.
+- Use project key: `gratitudeapp` (or your naming standard).
+- If using SonarQube Scanner, ensure Java is installed on the runner.
+
+## Trivy Notes
+Use:
+- Filesystem scan in CI: `trivy fs --severity HIGH,CRITICAL .`
+- Image scan in CD: `trivy image --severity HIGH,CRITICAL <image>`
+- Fail the pipeline on critical vulnerabilities.
+
+## Deployment Notes (EKS)
+- Prefer `kubectl set image` or Helm for rollout.
+- Use namespaces for dev/stage/prod.
+- Track deployment status with `kubectl rollout status`.
+- Store Kubernetes manifests in a `/k8s` folder in the app repo.
+
+## Acceptance Criteria
+- CI runs on pull requests and reports SonarQube + Trivy results.
+- CD runs on merge to `main` and deploys to EKS automatically.
+- Pipeline fails on quality gate or critical vulnerabilities.
+- Deployment is repeatable and observable via rollout status.
+
+## Tips
+- Use OIDC or instance role on the runner instead of static AWS keys.
+- Use caching (npm/pip/gradle) to speed up builds.
+- Keep the runner isolated and updated; treat it as production infra.

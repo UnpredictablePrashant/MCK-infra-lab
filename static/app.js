@@ -16,6 +16,13 @@ const autoFillTimer = document.getElementById("auto-fill-timer");
 const autoFillEntry = document.getElementById("auto-fill-entry");
 const labContext = document.getElementById("lab-context");
 const activeLabId = labContext ? labContext.dataset.labId : null;
+const modal = document.getElementById("detail-modal");
+const modalTitle = document.getElementById("modal-title");
+const modalDetails = document.getElementById("modal-details");
+const modalCodeBlock = document.getElementById("modal-code-block");
+const modalCode = document.getElementById("modal-code");
+const modalDownloads = document.getElementById("modal-downloads");
+const modalDownloadList = document.getElementById("modal-download-list");
 
 let socket;
 const MAX_LOG_LINES = 200;
@@ -336,4 +343,72 @@ if (refreshStudentsBtn) {
 }
 if (refreshLeaderboardBtn) {
   refreshLeaderboardBtn.addEventListener("click", refreshLeaderboard);
+}
+
+function closeModal() {
+  if (!modal) {
+    return;
+  }
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+function openModal(payload) {
+  if (!modal || !payload) {
+    return;
+  }
+  modalTitle.textContent = payload.title || "Details";
+  modalDetails.textContent = payload.details || "No additional details available.";
+
+  if (payload.code) {
+    modalCode.textContent = payload.code;
+    modalCodeBlock.classList.remove("hidden");
+  } else {
+    modalCode.textContent = "";
+    modalCodeBlock.classList.add("hidden");
+  }
+
+  if (Array.isArray(payload.downloads) && payload.downloads.length) {
+    modalDownloadList.innerHTML = "";
+    payload.downloads.forEach((item) => {
+      const link = document.createElement("a");
+      link.className = "download-link";
+      link.href = `/downloads/${encodeURIComponent(item.key)}`;
+      link.textContent = item.label || "Download file";
+      modalDownloadList.appendChild(link);
+    });
+    modalDownloads.classList.remove("hidden");
+  } else {
+    modalDownloads.classList.add("hidden");
+  }
+
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+const detailTriggers = document.querySelectorAll(".detail-trigger");
+detailTriggers.forEach((trigger) => {
+  trigger.addEventListener("click", () => {
+    try {
+      const payload = JSON.parse(trigger.dataset.modal || "{}");
+      openModal(payload);
+    } catch (err) {
+      console.error(err);
+    }
+  });
+});
+
+if (modal) {
+  modal.addEventListener("click", (event) => {
+    if (event.target && event.target.hasAttribute("data-modal-close")) {
+      closeModal();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeModal();
+    }
+  });
 }

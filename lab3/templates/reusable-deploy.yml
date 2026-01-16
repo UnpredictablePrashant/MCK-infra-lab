@@ -1,0 +1,68 @@
+name: Reusable Deploy to EKS
+
+on:
+  workflow_call:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, x64, gratitude-runner]
+    permissions:
+      id-token: write
+      contents: read
+
+    environment:
+      name: prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region "${{ secrets.AWS_REGION }}" \
+            --name "${{ secrets.EKS_CLUSTER_NAME }}"
+
+      - name: Deploy manifests
+        run: |
+          kubectl apply -f k8s/
+
+      - name: Update images (rolling)
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          TAG: ${{ inputs.image_tag }}
+          ECR_BASE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+        run: |
+          kubectl set image deployment/client-deployment \
+            client=$ECR_BASE/gratitudeapp-client:$TAG --record
+          kubectl set image deployment/api-gateway-deployment \
+            api-gateway=$ECR_BASE/gratitudeapp-api-gateway:$TAG --record
+          kubectl set image deployment/entries-deployment \
+            entries=$ECR_BASE/gratitudeapp-entries:$TAG --record
+          kubectl set image deployment/moods-api-deployment \
+            moods-api=$ECR_BASE/gratitudeapp-moods-api:$TAG --record
+          kubectl set image deployment/moods-service-deployment \
+            moods-service=$ECR_BASE/gratitudeapp-moods-service:$TAG --record
+          kubectl set image deployment/server-deployment \
+            server=$ECR_BASE/gratitudeapp-server:$TAG --record
+          kubectl set image deployment/stats-api-deployment \
+            stats-api=$ECR_BASE/gratitudeapp-stats-api:$TAG --record
+          kubectl set image deployment/stats-service-deployment \
+            stats-service=$ECR_BASE/gratitudeapp-stats-service:$TAG --record
+          kubectl set image deployment/files-service-deployment \
+            files-service=$ECR_BASE/gratitudeapp-files-service:$TAG --record
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/api-gateway-deployment --timeout=180s
+          kubectl get pods -o wide

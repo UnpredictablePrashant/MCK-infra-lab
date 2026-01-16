@@ -1,0 +1,141 @@
+name: GratitudeApp CI/CD Orchestrator
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      build_all:
+        description: "Build all services (true/false)"
+        required: true
+        default: "false"
+      deploy:
+        description: "Deploy to EKS after build (true/false)"
+        required: true
+        default: "true"
+
+concurrency:
+  group: gratitudeapp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      changed_any: ${{ steps.filter.outputs.changed_any }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect changed services
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            client:
+              - 'client/**'
+            api-gateway:
+              - 'services/api-gateway/**'
+            entries:
+              - 'services/entries-service/**'
+            moods-api:
+              - 'services/moods-api/**'
+            moods-service:
+              - 'services/moods-service/**'
+            server:
+              - 'services/server-main/**'
+            stats-api:
+              - 'services/stats-api/**'
+            stats-service:
+              - 'services/stats-service/**'
+            files-service:
+              - 'services/files-service/**'
+            k8s:
+              - 'k8s/**'
+
+      - name: Build matrix JSON
+        id: set-matrix
+        run: |
+          BUILD_ALL="${{ github.event.inputs.build_all }}"
+          if [ "$BUILD_ALL" = "true" ]; then
+            cat > matrix.json <<'JSON'
+          {"include":[
+            {"name":"client","path":"client","ecr_repo":"gratitudeapp-client"},
+            {"name":"api-gateway","path":"services/api-gateway","ecr_repo":"gratitudeapp-api-gateway"},
+            {"name":"entries","path":"services/entries-service","ecr_repo":"gratitudeapp-entries"},
+            {"name":"moods-api","path":"services/moods-api","ecr_repo":"gratitudeapp-moods-api"},
+            {"name":"moods-service","path":"services/moods-service","ecr_repo":"gratitudeapp-moods-service"},
+            {"name":"server","path":"services/server-main","ecr_repo":"gratitudeapp-server"},
+            {"name":"stats-api","path":"services/stats-api","ecr_repo":"gratitudeapp-stats-api"},
+            {"name":"stats-service","path":"services/stats-service","ecr_repo":"gratitudeapp-stats-service"},
+            {"name":"files-service","path":"services/files-service","ecr_repo":"gratitudeapp-files-service"}
+          ]}
+JSON
+          else
+            python - <<'PY'
+          import json, os
+          mapping = [
+            ("client","client","gratitudeapp-client"),
+            ("api-gateway","services/api-gateway","gratitudeapp-api-gateway"),
+            ("entries","services/entries-service","gratitudeapp-entries"),
+            ("moods-api","services/moods-api","gratitudeapp-moods-api"),
+            ("moods-service","services/moods-service","gratitudeapp-moods-service"),
+            ("server","services/server-main","gratitudeapp-server"),
+            ("stats-api","services/stats-api","gratitudeapp-stats-api"),
+            ("stats-service","services/stats-service","gratitudeapp-stats-service"),
+            ("files-service","services/files-service","gratitudeapp-files-service"),
+          ]
+          changed = {
+            "client": os.environ.get("CH_CLIENT","false") == "true",
+            "api-gateway": os.environ.get("CH_API_GATEWAY","false") == "true",
+            "entries": os.environ.get("CH_ENTRIES","false") == "true",
+            "moods-api": os.environ.get("CH_MOODS_API","false") == "true",
+            "moods-service": os.environ.get("CH_MOODS_SERVICE","false") == "true",
+            "server": os.environ.get("CH_SERVER","false") == "true",
+            "stats-api": os.environ.get("CH_STATS_API","false") == "true",
+            "stats-service": os.environ.get("CH_STATS_SERVICE","false") == "true",
+            "files-service": os.environ.get("CH_FILES_SERVICE","false") == "true",
+          }
+          include = [
+            {"name":n,"path":p,"ecr_repo":r}
+            for (n,p,r) in mapping
+            if changed.get(n, False)
+          ]
+          print(json.dumps({"include": include}))
+          PY
+          fi
+          echo "matrix=$(cat matrix.json 2>/dev/null || true)" >> $GITHUB_OUTPUT
+        env:
+          CH_CLIENT: ${{ steps.filter.outputs.client }}
+          CH_API_GATEWAY: ${{ steps.filter.outputs.api-gateway }}
+          CH_ENTRIES: ${{ steps.filter.outputs.entries }}
+          CH_MOODS_API: ${{ steps.filter.outputs.moods-api }}
+          CH_MOODS_SERVICE: ${{ steps.filter.outputs.moods-service }}
+          CH_SERVER: ${{ steps.filter.outputs.server }}
+          CH_STATS_API: ${{ steps.filter.outputs.stats-api }}
+          CH_STATS_SERVICE: ${{ steps.filter.outputs.stats-service }}
+          CH_FILES_SERVICE: ${{ steps.filter.outputs.files-service }}
+
+  build:
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.matrix != '' && needs.detect-changes.outputs.matrix != 'null' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      service_name: ${{ matrix.name }}
+      service_path: ${{ matrix.path }}
+      ecr_repo: ${{ matrix.ecr_repo }}
+      image_tag: ${{ github.sha }}
+    secrets: inherit
+
+  deploy:
+    needs: [build]
+    if: ${{ github.ref == 'refs/heads/main' && (github.event.inputs.deploy != 'false') }}
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      image_tag: ${{ github.sha }}
+    secrets: inherit

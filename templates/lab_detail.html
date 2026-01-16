@@ -33,6 +33,103 @@
         </div>
       </section>
 
+      <section class="panel brief-panel">
+        <div class="results-header">
+          <h2>Lab brief</h2>
+          <span class="muted">{{ lab.summary }}</span>
+        </div>
+        <div class="brief-grid">
+          {% for fact in lab.facts %}
+          <div class="brief-card">
+            <span class="brief-label">{{ fact.title }}</span>
+            <p>{{ fact.body }}</p>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="panel steps-panel">
+        <div class="results-header">
+          <h2>Required steps</h2>
+          <span class="muted">Complete these in order to finish the lab.</span>
+        </div>
+        <ol class="steps-list">
+          {% for step in lab.steps %}
+          <li class="steps-item">
+            <div class="steps-body">
+              <h3>{{ step.title }}</h3>
+              <p>{{ step.body }}</p>
+            </div>
+            {% if step.output %}
+            <span class="step-output">{{ step.output }}</span>
+            {% endif %}
+            {% if step.details or step.code or step.downloads %}
+            {% set modal_payload = {
+              "title": step.title,
+              "details": step.details | default(""),
+              "code": step.code | default(""),
+              "downloads": step.downloads | default([])
+            } %}
+            <button
+              type="button"
+              class="ghost-link detail-trigger"
+              data-modal='{{ modal_payload | tojson }}'
+            >
+              View details
+            </button>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </section>
+
+      <section class="panel">
+        <div class="results-header">
+          <h2>Deliverables</h2>
+          <span class="muted">What you must submit or prove.</span>
+        </div>
+        <div class="section-grid">
+          {% for item in lab.deliverables %}
+          <div class="section-card">
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.body }}</p>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="results-header">
+          <h2>Validation checklist</h2>
+          <span class="muted">Use this list to confirm completion.</span>
+        </div>
+        <ul class="checklist">
+          {% for item in lab.validation %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section class="panel">
+        <div class="results-header">
+          <h2>Resources</h2>
+          <span class="muted">Links and references for this lab.</span>
+        </div>
+        <div class="section-grid">
+          {% for item in lab.resources %}
+          <div class="section-card">
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.body }}</p>
+            {% if item.body and item.body.startswith("http") %}
+            <a class="primary-link resource-link" href="{{ item.body }}" target="_blank" rel="noreferrer">
+              Open link
+            </a>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
       {% for section in lab.sections %}
       <section class="panel">
         <div class="results-header">
@@ -156,6 +253,27 @@
       </section>
       {% endif %}
     </main>
+
+    <div class="modal hidden" id="detail-modal" aria-hidden="true">
+      <div class="modal-backdrop" data-modal-close></div>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-header">
+          <h2 id="modal-title">Details</h2>
+          <button type="button" class="modal-close" data-modal-close>Close</button>
+        </div>
+        <div class="modal-body">
+          <p id="modal-details"></p>
+          <div id="modal-code-block" class="modal-code hidden">
+            <div class="modal-subtitle">Code</div>
+            <pre><code id="modal-code"></code></pre>
+          </div>
+          <div id="modal-downloads" class="modal-downloads hidden">
+            <div class="modal-subtitle">Downloads</div>
+            <div id="modal-download-list" class="modal-download-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script src="/static/app.js"></script>
   </body>

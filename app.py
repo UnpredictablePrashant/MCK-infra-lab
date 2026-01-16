@@ -6,7 +6,16 @@ import threading
 import time
 from urllib.parse import urlparse
 
-from flask import Flask, jsonify, render_template, request, session, redirect, url_for
+from flask import (
+    Flask,
+    jsonify,
+    render_template,
+    request,
+    session,
+    redirect,
+    url_for,
+    send_file,
+)
 from flask_sock import Sock
 
 from compare_utils import DEFAULT_COMPARE_ENDPOINTS, compare_endpoints
@@ -17,6 +26,18 @@ from migrate_db import run as run_migrations
 DEFAULT_BASELINE_URL = (
     "http://a218f40cdece3464687b8c8c7d8addf2-557072703.us-east-1.elb.amazonaws.com/"
 )
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DOWNLOADS = {
+    "lab3_ci_template": "lab3/templates/ci.yml",
+    "lab3_cd_template": "lab3/templates/cd.yml",
+    "lab3_runner_setup": "lab3/runner-setup.md",
+    "lab3_blueprint": "lab3/blueprint.md",
+    "lab3_orchestrator": "lab3/templates/orchestrator.yml",
+    "lab3_reusable_build": "lab3/templates/reusable-build.yml",
+    "lab3_reusable_deploy": "lab3/templates/reusable-deploy.yml",
+}
 
 LABS = {
     "lab1": {
@@ -29,6 +50,99 @@ LABS = {
             "Deploy the app, run an expand/backfill/cutover migration, and verify "
             "your data matches the baseline."
         ),
+        "facts": [
+            {"title": "Level", "body": "Intermediate"},
+            {"title": "Estimated time", "body": "2-3 hours"},
+            {"title": "Primary focus", "body": "Database migration safety"},
+            {"title": "Stack", "body": "Kubernetes, Postgres, Flask verifier"},
+        ],
+        "steps": [
+            {
+                "title": "Deploy the app",
+                "body": "Launch your app in Kubernetes and expose a public URL.",
+                "output": "Live app URL for verification.",
+                "details": (
+                    "Deploy the GratitudeApp into your Kubernetes cluster. Ensure the "
+                    "service is reachable from the public internet so the verifier can "
+                    "compare endpoints."
+                ),
+                "code": "kubectl apply -f k8s/\n"
+                "kubectl get ingress",
+            },
+            {
+                "title": "Expand schema",
+                "body": "Add backward-compatible tables/columns.",
+                "output": "Migration applied without downtime.",
+                "details": (
+                    "Add new columns/tables without dropping or renaming existing "
+                    "fields. The live app must keep working during the change."
+                ),
+                "code": "ALTER TABLE journal_entries ADD COLUMN mood_tag TEXT;",
+            },
+            {
+                "title": "Backfill data",
+                "body": "Copy existing data into the new schema.",
+                "output": "Backfill logs + row counts.",
+                "details": (
+                    "Run a background job or migration script that copies data into "
+                    "the new schema without blocking writes."
+                ),
+                "code": "python3 migrate_db.py",
+            },
+            {
+                "title": "Dual-write",
+                "body": "Write to old and new schema while traffic is live.",
+                "output": "Both schemas updated on new writes.",
+                "details": (
+                    "Update the app so each write operation updates both the old and "
+                    "new schema. Monitor error logs for mismatched writes."
+                ),
+                "code": "write_old(payload)\nwrite_new(payload)",
+            },
+            {
+                "title": "Cutover + verify",
+                "body": "Switch reads to the new schema and submit for comparison.",
+                "output": "Leaderboard shows in-sync status.",
+                "details": (
+                    "Update the read path to use the new schema. Submit your app URL "
+                    "to the verifier and confirm endpoints match the baseline."
+                ),
+                "code": "BASELINE_URL=... python3 app.py",
+            },
+        ],
+        "deliverables": [
+            {
+                "title": "Migration plan",
+                "body": "Documented expand/backfill/dual-write/cutover approach.",
+            },
+            {
+                "title": "App endpoint",
+                "body": "Public URL registered in the verifier.",
+            },
+            {
+                "title": "Verification evidence",
+                "body": "Sync status from leaderboard or comparison logs.",
+            },
+        ],
+        "validation": [
+            "API responses match baseline for all verifier endpoints.",
+            "No downtime during migration.",
+            "All data present after cutover.",
+        ],
+        "resources": [
+            {
+                "title": "Baseline app",
+                "body": DEFAULT_BASELINE_URL.rstrip("/"),
+            },
+            {
+                "title": "Verifier endpoints",
+                "body": "/api/moods/all, /api/journal/entries/all, /api/stats/overview",
+            },
+            {
+                "title": "Server values",
+                "body": "/api/server/values/all",
+            },
+        ],
         "compare_enabled": True,
         "automation_enabled": True,
         "leaderboard_enabled": True,
@@ -81,6 +195,98 @@ LABS = {
             "Build a Terraform module that provisions S3 + IAM + IRSA and deploys the "
             "files-service into the existing app stack."
         ),
+        "facts": [
+            {"title": "Level", "body": "Intermediate"},
+            {"title": "Estimated time", "body": "3-4 hours"},
+            {"title": "Primary focus", "body": "Terraform modularization"},
+            {"title": "Stack", "body": "Terraform, EKS, S3, IAM/IRSA"},
+        ],
+        "steps": [
+            {
+                "title": "Scaffold module",
+                "body": "Create module structure for the files-service stack.",
+                "output": "Reusable module folder with inputs/outputs.",
+                "details": (
+                    "Create inputs for cluster, namespace, and S3 settings. Export "
+                    "outputs like bucket name and service account."
+                ),
+                "code": "variable \"s3_bucket_name\" {\n  type = string\n}\n\n"
+                "output \"bucket_name\" {\n  value = aws_s3_bucket.files.bucket\n}",
+            },
+            {
+                "title": "Provision S3 + IAM",
+                "body": "Add bucket, IAM policy, and IRSA role.",
+                "output": "Role ARN for files-service-sa.",
+                "details": (
+                    "Scope the IAM policy to only the bucket and optional prefix. "
+                    "Bind the role to the OIDC provider for IRSA."
+                ),
+                "code": "s3:PutObject\ns3:GetObject\ns3:ListBucket",
+            },
+            {
+                "title": "Deploy Kubernetes resources",
+                "body": "Use Terraform to deploy deployment/service/ingress.",
+                "output": "files-service pods running with IRSA.",
+                "details": (
+                    "Use the Kubernetes provider to apply deployment, service, and "
+                    "ingress manifests with the files-service service account."
+                ),
+                "code": "service_account_name = \"files-service-sa\"",
+            },
+            {
+                "title": "Wire the root stack",
+                "body": "Call the module and order dependencies.",
+                "output": "Root plan applies without manual kubectl steps.",
+                "details": (
+                    "Call the module from root and pass in required variables. "
+                    "Ensure S3/IAM resources are created before deployment."
+                ),
+                "code": "module \"files_service\" {\n  source = \"./modules/files\"\n}",
+            },
+            {
+                "title": "Validate file flow",
+                "body": "Upload, list, and download from the UI.",
+                "output": "Files stored in S3 with correct prefix.",
+                "details": (
+                    "Use the GratitudeApp UI to upload a file, list it, and download "
+                    "it again. Validate objects in S3."
+                ),
+                "code": "aws s3 ls s3://<bucket>/<prefix>/",
+            },
+        ],
+        "deliverables": [
+            {
+                "title": "Terraform module",
+                "body": "Module that provisions S3, IAM/IRSA, and k8s resources.",
+            },
+            {
+                "title": "Root integration",
+                "body": "Module call wired into the root stack.",
+            },
+            {
+                "title": "Validation evidence",
+                "body": "Screenshots or logs showing file upload + download.",
+            },
+        ],
+        "validation": [
+            "files-service uses IRSA (no static AWS keys).",
+            "Ingress routes /api/files/* correctly.",
+            "Terraform apply is repeatable without manual steps.",
+        ],
+        "resources": [
+            {
+                "title": "App repo",
+                "body": "https://github.com/UnpredictablePrashant/GratitudeApp",
+            },
+            {
+                "title": "Service account",
+                "body": "files-service-sa with IRSA annotation.",
+            },
+            {
+                "title": "Images",
+                "body": "prashantdey/merndemoapp:fileservice1.0, clientv1.0",
+            },
+        ],
         "compare_enabled": False,
         "automation_enabled": False,
         "leaderboard_enabled": False,
@@ -223,6 +429,412 @@ LABS = {
             },
         ],
     },
+    "lab3": {
+        "id": "lab3",
+        "code": "Lab 3",
+        "title": "CI/CD on GitHub Actions + EKS",
+        "status": "Active",
+        "summary": (
+            "Create a senior-grade pipeline with SonarQube quality gates, "
+            "Trivy scans, and automated EKS deploys."
+        ),
+        "tagline": (
+            "Stand up a self-hosted runner, enforce quality gates, scan for "
+            "vulnerabilities, and deploy to EKS on merge."
+        ),
+        "facts": [
+            {"title": "Level", "body": "Senior"},
+            {"title": "Estimated time", "body": "4-6 hours"},
+            {"title": "Primary focus", "body": "Advanced GitHub Actions + security gates"},
+            {"title": "Stack", "body": "GitHub Actions, SonarQube, Trivy, ECR, EKS"},
+            {"title": "Runner", "body": "Self-hosted EC2 with Docker Buildx"},
+        ],
+        "steps": [
+            {
+                "title": "Baseline infra (EKS + ECR)",
+                "body": "Ensure EKS, ingress, CSI, and ECR repos exist per README.",
+                "output": "ECR repos for all services are ready.",
+                "details": (
+                    "Create ECR repos for client, api-gateway, entries, moods-api, "
+                    "moods-service, server, stats-api, stats-service, files-service."
+                ),
+                "code": "aws ecr create-repository --repository-name gratitudeapp-client\n"
+                "aws ecr create-repository --repository-name gratitudeapp-api-gateway\n"
+                "aws ecr create-repository --repository-name gratitudeapp-entries\n"
+                "aws ecr create-repository --repository-name gratitudeapp-moods-api\n"
+                "aws ecr create-repository --repository-name gratitudeapp-moods-service\n"
+                "aws ecr create-repository --repository-name gratitudeapp-server\n"
+                "aws ecr create-repository --repository-name gratitudeapp-stats-api\n"
+                "aws ecr create-repository --repository-name gratitudeapp-stats-service\n"
+                "aws ecr create-repository --repository-name gratitudeapp-files-service",
+            },
+            {
+                "title": "OIDC role for GitHub Actions",
+                "body": "Create IAM role trusting GitHub OIDC with least privilege.",
+                "output": "Role ARN stored in GitHub secrets.",
+                "details": (
+                    "Grant minimal ECR push permissions and eks:DescribeCluster. "
+                    "Use AWS_ROLE_TO_ASSUME in GitHub Actions secrets."
+                ),
+                "code": "{\n"
+                "  \"Version\": \"2012-10-17\",\n"
+                "  \"Statement\": [\n"
+                "    {\n"
+                "      \"Effect\": \"Allow\",\n"
+                "      \"Principal\": {\n"
+                "        \"Federated\": \"arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com\"\n"
+                "      },\n"
+                "      \"Action\": \"sts:AssumeRoleWithWebIdentity\",\n"
+                "      \"Condition\": {\n"
+                "        \"StringLike\": {\n"
+                "          \"token.actions.githubusercontent.com:sub\": \"repo:<ORG>/<REPO>:*\"\n"
+                "        }\n"
+                "      }\n"
+                "    }\n"
+                "  ]\n"
+                "}\n"
+                "\n"
+                "permissions:\n"
+                "  id-token: write\n"
+                "  contents: read",
+            },
+            {
+                "title": "Provision self-hosted runner",
+                "body": "Register an EC2 runner with Docker, kubectl, helm, awscli.",
+                "output": "Runner online with labels gratitude-runner.",
+                "details": (
+                    "Recommended t3.large+ for parallel builds. Manage disk usage, "
+                    "workspace cleanup, and concurrency on the runner."
+                ),
+                "code": "sudo apt-get update\n"
+                "sudo apt-get install -y docker.io jq\n"
+                "curl -sL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip\n"
+                "unzip awscliv2.zip && sudo ./aws/install\n"
+                "curl -LO https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\n"
+                "sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl\n"
+                "curl -LO https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz\n"
+                "tar -xzf helm-v3.14.0-linux-amd64.tar.gz && sudo mv linux-amd64/helm /usr/local/bin/helm",
+                "downloads": [
+                    {
+                        "key": "lab3_runner_setup",
+                        "label": "Runner setup guide",
+                    },
+                    {
+                        "key": "lab3_blueprint",
+                        "label": "Full lab blueprint",
+                    },
+                ],
+            },
+            {
+                "title": "Create orchestration workflow",
+                "body": "Detect changed services, fan-out builds, then fan-in deploy.",
+                "output": "orchestrator.yml runs matrix builds in parallel.",
+                "details": (
+                    "Use dorny/paths-filter for change detection and fromJSON() to "
+                    "build a dynamic matrix. Add workflow_dispatch inputs to "
+                    "toggle build_all and deploy."
+                ),
+                "code": "jobs:\n"
+                "  detect-changes:\n"
+                "    runs-on: ubuntu-latest\n"
+                "    outputs:\n"
+                "      matrix: ${{ steps.set-matrix.outputs.matrix }}\n"
+                "    steps:\n"
+                "      - uses: actions/checkout@v4\n"
+                "      - id: filter\n"
+                "        uses: dorny/paths-filter@v3\n"
+                "        with:\n"
+                "          filters: |\n"
+                "            client: [\"client/**\"]\n"
+                "            api-gateway: [\"services/api-gateway/**\"]\n"
+                "      - id: set-matrix\n"
+                "        run: |\n"
+                "          echo 'matrix={\"include\":[{\"name\":\"client\",\"path\":\"client\",\"ecr_repo\":\"gratitudeapp-client\"}]}' >> $GITHUB_OUTPUT\n"
+                "\n"
+                "  build:\n"
+                "    needs: detect-changes\n"
+                "    strategy:\n"
+                "      fail-fast: false\n"
+                "      matrix: ${{ fromJSON(needs.detect-changes.outputs.matrix) }}\n"
+                "    uses: ./.github/workflows/reusable-build.yml\n"
+                "    with:\n"
+                "      service_name: ${{ matrix.name }}\n"
+                "      service_path: ${{ matrix.path }}\n"
+                "      ecr_repo: ${{ matrix.ecr_repo }}\n"
+                "      image_tag: ${{ github.sha }}\n"
+                "    secrets: inherit",
+                "downloads": [
+                    {
+                        "key": "lab3_orchestrator",
+                        "label": "Download orchestrator.yml",
+                    }
+                ],
+            },
+            {
+                "title": "Reusable build workflow",
+                "body": "Build, test, SonarQube scan, Trivy scan, then push to ECR.",
+                "output": "Images pushed only after quality gates pass.",
+                "details": (
+                    "Use workflow_call inputs for service_name/path/repo. Add "
+                    "SonarQube scanning, Trivy fs + image scans, and fail on "
+                    "HIGH/CRITICAL vulnerabilities."
+                ),
+                "code": "jobs:\n"
+                "  build_scan_push:\n"
+                "    runs-on: [self-hosted, linux, x64, gratitude-runner]\n"
+                "    permissions:\n"
+                "      id-token: write\n"
+                "      contents: read\n"
+                "    steps:\n"
+                "      - uses: actions/checkout@v4\n"
+                "      - uses: aws-actions/configure-aws-credentials@v4\n"
+                "        with:\n"
+                "          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}\n"
+                "          aws-region: ${{ secrets.AWS_REGION }}\n"
+                "      - uses: aws-actions/amazon-ecr-login@v2\n"
+                "      - uses: docker/build-push-action@v6\n"
+                "        with:\n"
+                "          context: ${{ inputs.service_path }}\n"
+                "          push: false\n"
+                "          tags: ${{ env.ECR_BASE }}/${{ inputs.ecr_repo }}:${{ inputs.image_tag }}\n"
+                "      - name: SonarQube scan\n"
+                "        run: |\n"
+                "          docker run --rm \\\n"
+                "            -e SONAR_HOST_URL=\"${{ secrets.SONAR_HOST_URL }}\" \\\n"
+                "            -e SONAR_TOKEN=\"${{ secrets.SONAR_TOKEN }}\" \\\n"
+                "            -v \"${{ github.workspace }}:/usr/src\" \\\n"
+                "            sonarsource/sonar-scanner-cli:latest \\\n"
+                "            -Dsonar.projectKey=gratitudeapp-${{ inputs.service_name }} \\\n"
+                "            -Dsonar.sources=${{ inputs.service_path }}\n"
+                "      - uses: aquasecurity/trivy-action@0.24.0\n"
+                "        with:\n"
+                "          scan-type: fs\n"
+                "          scan-ref: ${{ inputs.service_path }}\n"
+                "          exit-code: \"1\"\n"
+                "          severity: \"CRITICAL,HIGH\"\n"
+                "      - uses: aquasecurity/trivy-action@0.24.0\n"
+                "        with:\n"
+                "          scan-type: image\n"
+                "          image-ref: ${{ env.ECR_BASE }}/${{ inputs.ecr_repo }}:${{ inputs.image_tag }}\n"
+                "          exit-code: \"1\"\n"
+                "          severity: \"CRITICAL,HIGH\"\n"
+                "      - uses: docker/build-push-action@v6\n"
+                "        with:\n"
+                "          context: ${{ inputs.service_path }}\n"
+                "          push: true\n"
+                "          tags: ${{ env.ECR_BASE }}/${{ inputs.ecr_repo }}:${{ inputs.image_tag }}",
+                "downloads": [
+                    {
+                        "key": "lab3_reusable_build",
+                        "label": "Download reusable-build.yml",
+                    }
+                ],
+            },
+            {
+                "title": "Reusable deploy workflow",
+                "body": "Deploy to EKS after all builds complete.",
+                "output": "Rollout status verified for each deployment.",
+                "details": (
+                    "Use kubectl apply for manifests and kubectl set image to update "
+                    "tags. Gate production with GitHub Environments approval."
+                ),
+                "code": "jobs:\n"
+                "  deploy:\n"
+                "    runs-on: [self-hosted, linux, x64, gratitude-runner]\n"
+                "    permissions:\n"
+                "      id-token: write\n"
+                "      contents: read\n"
+                "    environment:\n"
+                "      name: prod\n"
+                "    steps:\n"
+                "      - uses: aws-actions/configure-aws-credentials@v4\n"
+                "        with:\n"
+                "          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}\n"
+                "          aws-region: ${{ secrets.AWS_REGION }}\n"
+                "      - run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }}\n"
+                "      - run: kubectl apply -f k8s/\n"
+                "      - run: kubectl rollout status deployment/api-gateway-deployment",
+                "downloads": [
+                    {
+                        "key": "lab3_reusable_deploy",
+                        "label": "Download reusable-deploy.yml",
+                    }
+                ],
+            },
+            {
+                "title": "Concurrency + protection",
+                "body": "Prevent deploy stampedes and enforce approvals.",
+                "output": "Only one main deploy runs at a time.",
+                "details": (
+                    "Add concurrency group on main and environment protection for prod. "
+                    "Keep fail-fast false for microservice builds."
+                ),
+                "code": "concurrency:\n"
+                "  group: gratitudeapp-${{ github.ref }}\n"
+                "  cancel-in-progress: true\n"
+                "\n"
+                "environment:\n"
+                "  name: prod\n"
+                "  url: https://your-app.example.com",
+            },
+            {
+                "title": "Validate advanced behaviors",
+                "body": "Prove selective builds, security gates, and rollout checks.",
+                "output": "CI/CD behavior verified with evidence.",
+                "details": (
+                    "Modify a single service path to ensure only that service builds. "
+                    "Force a Trivy HIGH issue to confirm gating."
+                ),
+                "code": "strategy:\n"
+                "  fail-fast: false\n"
+                "  max-parallel: 3\n"
+                "\n"
+                "uses: aquasecurity/trivy-action@0.24.0\n"
+                "with:\n"
+                "  exit-code: \"1\"\n"
+                "  severity: \"CRITICAL,HIGH\"",
+            },
+        ],
+        "deliverables": [
+            {
+                "title": "Workflow files",
+                "body": (
+                    ".github/workflows/orchestrator.yml, reusable-build.yml, "
+                    "reusable-deploy.yml"
+                ),
+            },
+            {
+                "title": "OIDC IAM role",
+                "body": "Role for GitHub Actions with least-privilege ECR/EKS access.",
+            },
+            {
+                "title": "Runner evidence",
+                "body": "Self-hosted runner registered with required labels.",
+            },
+            {
+                "title": "Deployment proof",
+                "body": "Rollout status output or screenshots from EKS.",
+            },
+        ],
+        "validation": [
+            "Dynamic matrix builds only changed services unless build_all is true.",
+            "SonarQube + Trivy gates block failures before image push.",
+            "Deploy runs only after all builds complete (fan-in).",
+            "OIDC auth used; no static AWS keys in secrets.",
+            "Concurrency + environment approval prevent deploy stampedes.",
+        ],
+        "resources": [
+            {
+                "title": "App repo",
+                "body": "https://github.com/UnpredictablePrashant/GratitudeApp",
+            },
+            {
+                "title": "Blueprint (download)",
+                "body": "Download via the step modal (lab3/blueprint.md).",
+            },
+            {
+                "title": "ECR repos",
+                "body": (
+                    "gratitudeapp-client, gratitudeapp-api-gateway, gratitudeapp-entries, "
+                    "gratitudeapp-moods-api, gratitudeapp-moods-service, gratitudeapp-server, "
+                    "gratitudeapp-stats-api, gratitudeapp-stats-service, gratitudeapp-files-service"
+                ),
+            },
+            {
+                "title": "Required tools",
+                "body": "Docker Buildx, awscli v2, kubectl, helm, trivy (optional), sonar-scanner (optional)",
+            },
+        ],
+        "compare_enabled": False,
+        "automation_enabled": False,
+        "leaderboard_enabled": False,
+        "submission_enabled": False,
+        "form_cta": "Register endpoint",
+        "form_helper": "No submissions required for Lab 3.",
+        "sections": [
+            {
+                "title": "Pipeline goals",
+                "items": [
+                    {
+                        "title": "CI quality gate",
+                        "body": "Run tests, SonarQube analysis, and Trivy FS scans on PRs.",
+                    },
+                    {
+                        "title": "CD automation",
+                        "body": "Build/push images and deploy to EKS on main merges.",
+                    },
+                    {
+                        "title": "Security baseline",
+                        "body": "Fail builds on critical vulnerabilities or gate failures.",
+                    },
+                ],
+            },
+            {
+                "title": "Advanced workflows",
+                "items": [
+                    {
+                        "title": "Orchestration + fan-out",
+                        "body": "Detect changes and run parallel builds using a dynamic matrix.",
+                    },
+                    {
+                        "title": "Reusable workflows",
+                        "body": "Use workflow_call for build and deploy logic reuse.",
+                    },
+                    {
+                        "title": "Concurrency + approvals",
+                        "body": "Protect production with environment approvals and concurrency groups.",
+                    },
+                ],
+            },
+            {
+                "title": "Runner requirements",
+                "items": [
+                    {
+                        "title": "Self-hosted runner",
+                        "body": "EC2/VM with Docker, git, AWS CLI, kubectl, and network access.",
+                    },
+                    {
+                        "title": "Access",
+                        "body": "Runner can reach SonarQube, ECR, and the EKS cluster.",
+                    },
+                ],
+            },
+            {
+                "title": "Workflow artifacts",
+                "items": [
+                    {
+                        "title": "Orchestrator",
+                        "body": "Use templates in lab3/templates/orchestrator.yml.",
+                    },
+                    {
+                        "title": "Reusable build",
+                        "body": "Use templates in lab3/templates/reusable-build.yml.",
+                    },
+                    {
+                        "title": "Reusable deploy",
+                        "body": "Use templates in lab3/templates/reusable-deploy.yml.",
+                    },
+                    {
+                        "title": "Runner guide",
+                        "body": "Follow lab3/runner-setup.md for provisioning steps.",
+                    },
+                ],
+            },
+            {
+                "title": "Acceptance criteria",
+                "items": [
+                    {
+                        "title": "PR checks",
+                        "body": "CI runs with SonarQube + Trivy results visible in Actions.",
+                    },
+                    {
+                        "title": "Automated deploy",
+                        "body": "CD deploys to EKS with rollout status on main merge.",
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 
@@ -292,6 +904,22 @@ def lab1():
 @app.get("/lab2")
 def lab2():
     return redirect(url_for("lab_detail", lab_id="lab2"))
+
+
+@app.get("/lab3")
+def lab3():
+    return redirect(url_for("lab_detail", lab_id="lab3"))
+
+
+@app.get("/downloads/<file_key>")
+def download_file(file_key):
+    relative_path = DOWNLOADS.get(file_key)
+    if not relative_path:
+        return "File not found.", 404
+    full_path = os.path.join(BASE_DIR, relative_path)
+    if not os.path.isfile(full_path):
+        return "File not found.", 404
+    return send_file(full_path, as_attachment=True)
 
 
 @app.get("/labs/<lab_id>")
