@@ -2,8 +2,13 @@ import json
 import os
 import random
 import sqlite3
+import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from shlex import split as shlex_split
 from urllib.parse import urlparse
 
 from flask import (
@@ -971,7 +976,7 @@ LABS = {
                 "output": "PromQL queries for SLI/SLO panels.",
                 "details": (
                     "Use request metrics if available, or blackbox + k8s resource metrics "
-                    "to define SLOs with clear error budgets."
+                    "to define SLOs with clear error budgets and thresholds."
                 ),
                 "code": "avg_over_time(probe_success{job=\"probe/gratitudeapp-probe\"}[5m])\n\n"
                 "sum(rate(http_requests_total{service=\"gratitude\",status=~\"5..\"}[5m]))\n"
@@ -983,6 +988,38 @@ LABS = {
                 "sum(rate(container_cpu_usage_seconds_total{namespace=\"<ns>\",pod=~\"gratitude.*\",container!=\"\"}[5m]))\n"
                 "/\n"
                 "sum(kube_pod_container_resource_requests{namespace=\"<ns>\",pod=~\"gratitude.*\",resource=\"cpu\"})",
+            },
+            {
+                "title": "SLO/SLI tasks (with thresholds)",
+                "body": "Calculate ratios for availability, error rate, latency, and saturation.",
+                "output": "SLO targets documented and validated under load.",
+                "details": (
+                    "Use the formulas below to compute SLIs and compare against targets. "
+                    "Keep all ratios within thresholds during a 15-minute load test."
+                ),
+                "code": "Availability SLI (success ratio):\n"
+                "avg_over_time(probe_success{job=\"probe/gratitudeapp-probe\"}[5m])\n"
+                "Target: >= 0.999 (99.9%)\n\n"
+                "Error rate SLI (5xx ratio):\n"
+                "sum(rate(http_requests_total{service=\"gratitude\",status=~\"5..\"}[5m]))\n"
+                "/\n"
+                "sum(rate(http_requests_total{service=\"gratitude\"}[5m]))\n"
+                "Target: <= 0.01 (1%)\n\n"
+                "Latency SLI (p95):\n"
+                "histogram_quantile(0.95,\n"
+                "  sum(rate(http_request_duration_seconds_bucket{service=\"gratitude\"}[5m])) by (le)\n"
+                ")\n"
+                "Target: <= 0.300 seconds\n\n"
+                "CPU saturation SLI:\n"
+                "sum(rate(container_cpu_usage_seconds_total{namespace=\"<ns>\",pod=~\"gratitude.*\",container!=\"\"}[5m]))\n"
+                "/\n"
+                "sum(kube_pod_container_resource_requests{namespace=\"<ns>\",pod=~\"gratitude.*\",resource=\"cpu\"})\n"
+                "Target: <= 0.75 (75%)\n\n"
+                "Memory saturation SLI:\n"
+                "sum(container_memory_working_set_bytes{namespace=\"<ns>\",pod=~\"gratitude.*\",container!=\"\"})\n"
+                "/\n"
+                "sum(kube_pod_container_resource_limits{namespace=\"<ns>\",pod=~\"gratitude.*\",resource=\"memory\"})\n"
+                "Target: <= 0.80 (80%)",
             },
             {
                 "title": "Build the SLO dashboard",
@@ -1020,6 +1057,16 @@ LABS = {
                 "        severity: critical\n"
                 "      annotations:\n"
                 "        summary: \"High error rate detected on GratitudeApp\"",
+            },
+            {
+                "title": "Submit your endpoint",
+                "body": "Register your DNS endpoint for automated load tests.",
+                "output": "Submission recorded for the lab.",
+                "details": (
+                    "Use the submission form on the Lab 4 page to register your name "
+                    "and DNS endpoint. The form is located on this page."
+                ),
+                "code": "Submission link: /labs/lab4",
             },
         ],
         "deliverables": [
@@ -1064,9 +1111,9 @@ LABS = {
         "compare_enabled": False,
         "automation_enabled": False,
         "leaderboard_enabled": False,
-        "submission_enabled": False,
+        "submission_enabled": True,
         "form_cta": "Register endpoint",
-        "form_helper": "No submissions required for Lab 4.",
+        "form_helper": "Submit your name and DNS endpoint in the form on this page.",
         "sections": [
             {
                 "title": "Audience and assumptions",
@@ -1163,6 +1210,126 @@ def is_valid_url(value):
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def parse_concurrency_steps(raw_value):
+    if not raw_value:
+        return [1]
+    steps = []
+    for item in raw_value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            value = int(item)
+        except ValueError:
+            continue
+        if value > 0:
+            steps.append(value)
+    return steps or [1]
+
+
+def log_load(message):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[load] {timestamp} {message}", flush=True)
+
+
+def build_hey_args(concurrency, duration_seconds):
+    base_args = shlex_split(LOAD_HEY_ARGS) if LOAD_HEY_ARGS else []
+    cleaned = []
+    skip_next = False
+    for token in base_args:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in {"-c", "-z"}:
+            skip_next = True
+            continue
+        cleaned.append(token)
+    if duration_seconds > 0:
+        cleaned += ["-z", f"{duration_seconds}s"]
+    cleaned += ["-c", str(concurrency)]
+    return [LOAD_HEY_PATH] + cleaned
+
+
+def _load_worker(url, end_time, counters, lock):
+    while time.time() < end_time:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as response:
+                response.read(64)
+            with lock:
+                counters["ok"] += 1
+        except Exception:
+            with lock:
+                counters["err"] += 1
+        time.sleep(0.01)
+
+
+def run_load_step_internal(url, concurrency, duration_seconds):
+    end_time = time.time() + max(1, duration_seconds)
+    counters = {"ok": 0, "err": 0}
+    lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        for _ in range(concurrency):
+            executor.submit(_load_worker, url, end_time, counters, lock)
+    return counters
+
+
+def run_load_step_hey(url, concurrency, duration_seconds):
+    args = build_hey_args(concurrency, duration_seconds)
+    timeout_seconds = max(10, duration_seconds + 30)
+    try:
+        result = subprocess.run(
+            args + [url],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except FileNotFoundError:
+        log_load(f"hey not found at {LOAD_HEY_PATH}; falling back to internal load.")
+        return run_load_step_internal(url, concurrency, duration_seconds)
+    except subprocess.TimeoutExpired:
+        log_load(f"hey timed out for {url} at concurrency {concurrency}.")
+        return {"ok": 0, "err": 1}
+    if result.returncode != 0:
+        tail = (result.stderr or result.stdout or "").strip().splitlines()[-3:]
+        log_load(f"hey failed for {url} (code {result.returncode}): {' | '.join(tail)}")
+    return {"ok": 0, "err": 0}
+
+
+def run_load_for_target(url, name, steps, duration_seconds):
+    for concurrency in steps:
+        log_load(f"{name}: load step start url={url} concurrency={concurrency}")
+        if LOAD_TOOL == "hey":
+            run_load_step_hey(url, concurrency, duration_seconds)
+        else:
+            counters = run_load_step_internal(url, concurrency, duration_seconds)
+            log_load(
+                f"{name}: load step done url={url} c={concurrency} "
+                f"ok={counters['ok']} err={counters['err']}"
+            )
+        time.sleep(max(0, LOAD_STEP_PAUSE_SECONDS))
+
+
+def run_load_loop():
+    steps = parse_concurrency_steps(LOAD_CONCURRENCY_STEPS)
+    while True:
+        if not LOAD_TEST_ENABLED:
+            time.sleep(max(5, LOAD_ROUND_PAUSE_SECONDS))
+            continue
+        targets = list_students(LOAD_TEST_LAB_ID)
+        if not targets:
+            time.sleep(max(5, LOAD_ROUND_PAUSE_SECONDS))
+            continue
+        for target in targets:
+            url = target.get("url")
+            name = target.get("name") or "target"
+            if not url or not is_valid_url(url):
+                log_load(f"{name}: invalid URL; skipped.")
+                continue
+            run_load_for_target(url, name, steps, LOAD_STEP_SECONDS)
+        time.sleep(max(5, LOAD_ROUND_PAUSE_SECONDS))
+
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "lab1-default-secret")
 sock = Sock(app)
@@ -1187,6 +1354,15 @@ FILL_MODE = os.environ.get("FILL_MODE", "all")
 DB_PATH = os.environ.get("DB_PATH", "app.db")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "lab1admin")
+LOAD_TEST_ENABLED = os.environ.get("LOAD_TEST_ENABLED", "false").lower() == "true"
+LOAD_TEST_LAB_ID = os.environ.get("LOAD_TEST_LAB_ID", "lab4")
+LOAD_TOOL = os.environ.get("LOAD_TOOL", "internal").lower()
+LOAD_HEY_PATH = os.environ.get("LOAD_HEY_PATH", "hey")
+LOAD_HEY_ARGS = os.environ.get("LOAD_HEY_ARGS", "")
+LOAD_STEP_SECONDS = int(os.environ.get("LOAD_STEP_SECONDS", "60"))
+LOAD_STEP_PAUSE_SECONDS = int(os.environ.get("LOAD_STEP_PAUSE_SECONDS", "5"))
+LOAD_ROUND_PAUSE_SECONDS = int(os.environ.get("LOAD_ROUND_PAUSE_SECONDS", "30"))
+LOAD_CONCURRENCY_STEPS = os.environ.get("LOAD_CONCURRENCY_STEPS", "1,5,10,25")
 
 
 @app.get("/")
@@ -2109,4 +2285,7 @@ if __name__ == "__main__":
     thread.start()
     compare_thread = threading.Thread(target=run_compare_loop, daemon=True)
     compare_thread.start()
+    if LOAD_TEST_ENABLED:
+        load_thread = threading.Thread(target=run_load_loop, daemon=True)
+        load_thread.start()
     app.run(host="0.0.0.0", port=port, debug=False)
