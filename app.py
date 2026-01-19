@@ -835,6 +835,304 @@ LABS = {
             },
         ],
     },
+    "lab4": {
+        "id": "lab4",
+        "code": "Lab 4",
+        "title": "Observability on EKS: Prometheus + Grafana + SLI/SLO for GratitudeApp",
+        "status": "Active",
+        "summary": (
+            "Install kube-prometheus-stack, define SLIs/SLOs, build Grafana dashboards, "
+            "and alert on burn rate for GratitudeApp."
+        ),
+        "tagline": (
+            "Stand up Prometheus + Grafana, validate scrape targets, and prove "
+            "availability, latency, and saturation SLOs under load."
+        ),
+        "facts": [
+            {"title": "Level", "body": "Intermediate"},
+            {"title": "Estimated time", "body": "2-3 hours"},
+            {"title": "Primary focus", "body": "Observability + SLI/SLO design"},
+            {"title": "Stack", "body": "EKS, Prometheus, Grafana, Helm"},
+        ],
+        "steps": [
+            {
+                "title": "Confirm GratitudeApp endpoints",
+                "body": "Identify the ingress, service LoadBalancer, or port-forward entrypoint.",
+                "output": "Known base URL for load generation and probes.",
+                "details": (
+                    "Confirm the GratitudeApp namespace, services, and ingress. If you "
+                    "have a known entrypoint, record the base URL for later steps."
+                ),
+                "code": "kubectl get ns\n"
+                "kubectl get pods -A | head\n"
+                "kubectl get svc -A | grep -i gratitude || true\n"
+                "kubectl get ingress -A || true",
+            },
+            {
+                "title": "Install kube-prometheus-stack",
+                "body": "Install Prometheus, Alertmanager, Grafana, and exporters via Helm.",
+                "output": "Monitoring stack running in the monitoring namespace.",
+                "details": (
+                    "This chart includes Prometheus, Alertmanager, Grafana, node-exporter, "
+                    "kube-state-metrics, and default dashboards."
+                ),
+                "code": "kubectl create namespace monitoring\n\n"
+                "helm repo add prometheus-community https://prometheus-community.github.io/helm-charts\n"
+                "helm repo update\n\n"
+                "helm install kps prometheus-community/kube-prometheus-stack \\\n"
+                "  --namespace monitoring\n\n"
+                "kubectl -n monitoring get pods",
+            },
+            {
+                "title": "Access Grafana and Prometheus",
+                "body": "Log into Grafana and open Prometheus for debugging queries.",
+                "output": "Grafana UI reachable, Prometheus UI reachable.",
+                "details": (
+                    "Use port-forward for quick access or expose via ingress if required "
+                    "by your cluster setup."
+                ),
+                "code": "kubectl -n monitoring get secret kps-grafana \\\n"
+                "  -o jsonpath=\"{.data.admin-password}\" | base64 -d; echo\n\n"
+                "kubectl -n monitoring port-forward svc/kps-grafana 3000:80\n\n"
+                "kubectl -n monitoring port-forward \\\n"
+                "  svc/kps-kube-prometheus-stack-prometheus 9090:9090",
+            },
+            {
+                "title": "Verify scrape targets",
+                "body": "Confirm kubelet, node-exporter, and kube-state-metrics are up.",
+                "output": "Prometheus targets show healthy and queries return data.",
+                "details": (
+                    "In Prometheus UI, open Status > Targets. Ensure kubelet/cadvisor, "
+                    "kube-state-metrics, and node-exporter are healthy."
+                ),
+                "code": "sum(rate(container_cpu_usage_seconds_total{namespace!=\"\",container!=\"\"}[5m]))\n\n"
+                "sum(container_memory_working_set_bytes{namespace!=\"\",container!=\"\"})",
+            },
+            {
+                "title": "Add GratitudeApp metrics",
+                "body": "Scrape /metrics endpoints or add blackbox probes if unavailable.",
+                "output": "GratitudeApp targets appear in Prometheus.",
+                "details": (
+                    "If GratitudeApp exposes /metrics, add a ServiceMonitor with a label "
+                    "selector. If not, install the blackbox exporter and probe the "
+                    "health endpoint for availability SLIs."
+                ),
+                "code": "apiVersion: monitoring.coreos.com/v1\n"
+                "kind: ServiceMonitor\n"
+                "metadata:\n"
+                "  name: gratitudeapp-servicemonitor\n"
+                "  namespace: monitoring\n"
+                "  labels:\n"
+                "    release: kps\n"
+                "spec:\n"
+                "  namespaceSelector:\n"
+                "    matchNames:\n"
+                "      - default\n"
+                "  selector:\n"
+                "    matchLabels:\n"
+                "      app.kubernetes.io/part-of: gratitudeapp\n"
+                "  endpoints:\n"
+                "    - port: http\n"
+                "      path: /metrics\n"
+                "      interval: 15s\n"
+                "---\n"
+                "apiVersion: monitoring.coreos.com/v1\n"
+                "kind: Probe\n"
+                "metadata:\n"
+                "  name: gratitudeapp-probe\n"
+                "  namespace: monitoring\n"
+                "  labels:\n"
+                "    release: kps\n"
+                "spec:\n"
+                "  interval: 15s\n"
+                "  module: http_2xx\n"
+                "  prober:\n"
+                "    url: blackbox-prometheus-blackbox-exporter.monitoring.svc:9115\n"
+                "  targets:\n"
+                "    staticConfig:\n"
+                "      static:\n"
+                "        - https://<YOUR-GRATITUDEAPP-URL>/health",
+            },
+            {
+                "title": "Generate load",
+                "body": "Drive consistent traffic from laptop or a load generator pod.",
+                "output": "RPS, latency, and resource metrics move under load.",
+                "details": (
+                    "Use hey or k6 from your laptop when the app is public. For internal "
+                    "apps, use a lightweight pod and curl/wget in a loop."
+                ),
+                "code": "hey -z 5m -c 50 https://<URL>/api/some-endpoint\n\n"
+                "kubectl run -it --rm loadgen --image=busybox --restart=Never -- sh\n"
+                "while true; do wget -qO- http://<service>.<ns>.svc.cluster.local:PORT/health >/dev/null; done",
+            },
+            {
+                "title": "Define SLIs and SLOs",
+                "body": "Document availability, latency, error rate, and saturation targets.",
+                "output": "PromQL queries for SLI/SLO panels.",
+                "details": (
+                    "Use request metrics if available, or blackbox + k8s resource metrics "
+                    "to define SLOs with clear error budgets."
+                ),
+                "code": "avg_over_time(probe_success{job=\"probe/gratitudeapp-probe\"}[5m])\n\n"
+                "sum(rate(http_requests_total{service=\"gratitude\",status=~\"5..\"}[5m]))\n"
+                "/\n"
+                "sum(rate(http_requests_total{service=\"gratitude\"}[5m]))\n\n"
+                "histogram_quantile(0.95,\n"
+                "  sum(rate(http_request_duration_seconds_bucket{service=\"gratitude\"}[5m])) by (le)\n"
+                ")\n\n"
+                "sum(rate(container_cpu_usage_seconds_total{namespace=\"<ns>\",pod=~\"gratitude.*\",container!=\"\"}[5m]))\n"
+                "/\n"
+                "sum(kube_pod_container_resource_requests{namespace=\"<ns>\",pod=~\"gratitude.*\",resource=\"cpu\"})",
+            },
+            {
+                "title": "Build the SLO dashboard",
+                "body": "Create panels for availability, error rate, latency, and saturation.",
+                "output": "Grafana dashboard screenshot during load.",
+                "details": (
+                    "Include availability (last 1h and 24h), error rate, latency p95/p99, "
+                    "RPS, restarts, and CPU/memory saturation panels."
+                ),
+                "code": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"<ns>\",pod=~\"gratitude.*\"}[15m]))",
+            },
+            {
+                "title": "Create alert rules",
+                "body": "Add burn-rate, latency, and saturation alerts via PrometheusRule.",
+                "output": "Alerts visible in Prometheus UI.",
+                "details": (
+                    "Use the kube-prometheus-stack PrometheusRule CRD. Keep alerts simple "
+                    "for the lab, then route via Alertmanager if desired."
+                ),
+                "code": "apiVersion: monitoring.coreos.com/v1\n"
+                "kind: PrometheusRule\n"
+                "metadata:\n"
+                "  name: gratitudeapp-slo-alerts\n"
+                "  namespace: monitoring\n"
+                "  labels:\n"
+                "    release: kps\n"
+                "spec:\n"
+                "  groups:\n"
+                "  - name: gratitudeapp.slo.rules\n"
+                "    rules:\n"
+                "    - alert: GratitudeAppHighErrorRate\n"
+                "      expr: (sum(rate(http_requests_total{service=\"gratitude\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"gratitude\"}[5m]))) > 0.01\n"
+                "      for: 2m\n"
+                "      labels:\n"
+                "        severity: critical\n"
+                "      annotations:\n"
+                "        summary: \"High error rate detected on GratitudeApp\"",
+            },
+        ],
+        "deliverables": [
+            {
+                "title": "Running monitoring stack",
+                "body": "Prometheus + Grafana pods healthy in the monitoring namespace.",
+            },
+            {
+                "title": "SLO dashboard evidence",
+                "body": "Screenshot of Grafana dashboard during load.",
+            },
+            {
+                "title": "Alert rules",
+                "body": "At least one SLO burn-rate or saturation alert in Prometheus.",
+            },
+        ],
+        "validation": [
+            "Prometheus and Grafana pods are running in the monitoring namespace.",
+            "Grafana login works and shows Kubernetes metrics.",
+            "Load test increases RPS, CPU usage, or latency panels.",
+            "At least one SLO panel is present and explained.",
+            "At least one alert rule is visible in Prometheus.",
+        ],
+        "resources": [
+            {
+                "title": "kube-prometheus-stack chart",
+                "body": "https://prometheus-community.github.io/helm-charts",
+            },
+            {
+                "title": "PromQL basics",
+                "body": "https://prometheus.io/docs/prometheus/latest/querying/basics/",
+            },
+            {
+                "title": "Grafana dashboards",
+                "body": "https://grafana.com/grafana/dashboards/",
+            },
+            {
+                "title": "Blackbox exporter",
+                "body": "https://github.com/prometheus/blackbox_exporter",
+            },
+        ],
+        "compare_enabled": False,
+        "automation_enabled": False,
+        "leaderboard_enabled": False,
+        "submission_enabled": False,
+        "form_cta": "Register endpoint",
+        "form_helper": "No submissions required for Lab 4.",
+        "sections": [
+            {
+                "title": "Audience and assumptions",
+                "items": [
+                    {
+                        "title": "Prerequisites",
+                        "body": "Learners know Kubernetes fundamentals and basic monitoring.",
+                    },
+                    {
+                        "title": "GratitudeApp",
+                        "body": "Already deployed in the cluster with ingress or LB.",
+                    },
+                    {
+                        "title": "Tools",
+                        "body": "kubectl, helm, and EKS kubeconfig access.",
+                    },
+                ],
+            },
+            {
+                "title": "Learning outcomes",
+                "items": [
+                    {
+                        "title": "Install monitoring stack",
+                        "body": "Deploy Prometheus, Alertmanager, and Grafana via Helm.",
+                    },
+                    {
+                        "title": "Discover targets",
+                        "body": "Scrape nodes, pods, and application metrics if exposed.",
+                    },
+                    {
+                        "title": "Define SLIs/SLOs",
+                        "body": "Latency, error rate, availability, and saturation targets.",
+                    },
+                    {
+                        "title": "Build dashboards",
+                        "body": "Create Grafana panels aligned to the defined SLIs/SLOs.",
+                    },
+                    {
+                        "title": "Alert on burn rate",
+                        "body": "Add PrometheusRule alerts for SLOs and saturation.",
+                    },
+                    {
+                        "title": "Validate telemetry",
+                        "body": "Generate load and verify metrics end-to-end.",
+                    },
+                ],
+            },
+            {
+                "title": "Instructor notes",
+                "items": [
+                    {
+                        "title": "Pre-lab prep",
+                        "body": "Ensure /metrics or ingress metrics exist; keep a known good endpoint.",
+                    },
+                    {
+                        "title": "Common failure points",
+                        "body": "ServiceMonitor label mismatch, missing release label, or ingress metrics off.",
+                    },
+                    {
+                        "title": "Fallback plan",
+                        "body": "Use blackbox probes plus k8s resource metrics when app metrics are absent.",
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 
@@ -909,6 +1207,11 @@ def lab2():
 @app.get("/lab3")
 def lab3():
     return redirect(url_for("lab_detail", lab_id="lab3"))
+
+
+@app.get("/lab4")
+def lab4():
+    return redirect(url_for("lab_detail", lab_id="lab4"))
 
 
 @app.get("/downloads/<file_key>")
