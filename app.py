@@ -1180,6 +1180,288 @@ LABS = {
             },
         ],
     },
+    "lab5": {
+        "id": "lab5",
+        "code": "Lab 5",
+        "title": "Identity & Secrets on EKS: AWS SSO + IRSA + Vault",
+        "status": "Active",
+        "summary": (
+            "Implement enterprise identity and secrets flows: AWS SSO for humans, "
+            "IRSA for pods, and Vault for dynamic AWS credentials."
+        ),
+        "tagline": (
+            "Authenticate humans via AWS SSO, authenticate pods via IRSA, and issue "
+            "short-lived AWS credentials from Vault inside EKS."
+        ),
+        "facts": [
+            {"title": "Level", "body": "Senior"},
+            {"title": "Estimated time", "body": "3-4 hours"},
+            {"title": "Primary focus", "body": "Identity + secrets management"},
+            {"title": "Stack", "body": "AWS SSO, EKS, IRSA, Vault, IAM"},
+        ],
+        "steps": [
+            {
+                "title": "Create SSO permission set",
+                "body": "Provision an AWS SSO permission set for EKS admins.",
+                "output": "Permission set assigned to the platform engineer.",
+                "details": (
+                    "Create permission set EKS-Platform-Admin with AmazonEKSClusterPolicy, "
+                    "AmazonEKSServicePolicy, and a custom policy for eks:DescribeCluster."
+                ),
+                "code": "aws ssoadmin create-permission-set --name EKS-Platform-Admin",
+            },
+            {
+                "title": "Map SSO role to Kubernetes RBAC",
+                "body": "Bind the SSO IAM role to system:masters.",
+                "output": "SSO users can access the cluster via kubectl.",
+                "details": (
+                    "Update aws-auth ConfigMap with the AWSReservedSSO role ARN so "
+                    "SSO users are mapped into Kubernetes RBAC."
+                ),
+                "code": "mapRoles: |\n"
+                "  - rolearn: arn:aws:iam::<account-id>:role/AWSReservedSSO_EKS-Platform-Admin_*\n"
+                "    username: sso-admin\n"
+                "    groups:\n"
+                "      - system:masters",
+            },
+            {
+                "title": "Validate human access",
+                "body": "Verify SSO login and cluster access.",
+                "output": "kubectl works without long-lived keys.",
+                "details": (
+                    "Use aws sso login and run kubectl get nodes to confirm access."
+                ),
+                "code": "aws sso login\nkubectl get nodes",
+            },
+            {
+                "title": "Create Vault IRSA role",
+                "body": "Create an IAM role that Vault will assume via OIDC.",
+                "output": "IRSA role with trust policy for vault-sa.",
+                "details": (
+                    "Use a trust policy for sts:AssumeRoleWithWebIdentity bound to the "
+                    "vault namespace service account. Attach IAM permissions to create "
+                    "temporary users and policies."
+                ),
+                "code": "{\n"
+                "  \"Version\": \"2012-10-17\",\n"
+                "  \"Statement\": [{\n"
+                "    \"Effect\": \"Allow\",\n"
+                "    \"Principal\": {\n"
+                "      \"Federated\": \"arn:aws:iam::<account-id>:oidc-provider/<oidc-url>\"\n"
+                "    },\n"
+                "    \"Action\": \"sts:AssumeRoleWithWebIdentity\",\n"
+                "    \"Condition\": {\n"
+                "      \"StringEquals\": {\n"
+                "        \"<oidc-url>:sub\": \"system:serviceaccount:vault:vault-sa\"\n"
+                "      }\n"
+                "    }\n"
+                "  }]\n"
+                "}",
+            },
+            {
+                "title": "Create Vault service account",
+                "body": "Bind the IRSA role to the Vault service account.",
+                "output": "vault-sa created with role annotation.",
+                "details": (
+                    "Deploy vault-sa in the vault namespace with the IRSA role ARN."
+                ),
+                "code": "apiVersion: v1\n"
+                "kind: ServiceAccount\n"
+                "metadata:\n"
+                "  name: vault-sa\n"
+                "  namespace: vault\n"
+                "  annotations:\n"
+                "    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/VaultIRSA",
+            },
+            {
+                "title": "Install Vault via Helm",
+                "body": "Deploy Vault into the cluster.",
+                "output": "Vault pod running in the vault namespace.",
+                "details": (
+                    "Install the HashiCorp Vault Helm chart and configure it to use "
+                    "vault-sa for IRSA."
+                ),
+                "code": "helm repo add hashicorp https://helm.releases.hashicorp.com\n"
+                "helm install vault hashicorp/vault \\\n"
+                "  --namespace vault --create-namespace \\\n"
+                "  --set server.serviceAccount.name=vault-sa \\\n"
+                "  --set server.ha.enabled=false",
+            },
+            {
+                "title": "Initialize and unseal Vault",
+                "body": "Initialize and unseal the Vault server.",
+                "output": "Vault ready to serve requests.",
+                "details": (
+                    "Initialize the cluster, store the unseal keys securely, and unseal."
+                ),
+                "code": "kubectl exec -n vault vault-0 -- vault operator init\n"
+                "kubectl exec -n vault vault-0 -- vault operator unseal",
+            },
+            {
+                "title": "Enable AWS auth",
+                "body": "Configure Vault to accept AWS IAM auth.",
+                "output": "AWS auth method enabled in Vault.",
+                "details": (
+                    "Enable the AWS auth method and set the target AWS region."
+                ),
+                "code": "vault auth enable aws\n"
+                "vault write auth/aws/config/client sts_region=ap-south-1",
+            },
+            {
+                "title": "Bind Vault role to app IRSA",
+                "body": "Create a Vault role for an app IRSA identity.",
+                "output": "Vault role tied to the AppIRSA role ARN.",
+                "details": (
+                    "Configure a Vault role with auth_type=iam and bind it to the "
+                    "AppIRSA principal so pods can authenticate without static keys."
+                ),
+                "code": "vault write auth/aws/role/eks-app \\\n"
+                "  auth_type=iam \\\n"
+                "  bound_iam_principal_arn=arn:aws:iam::<account-id>:role/AppIRSA \\\n"
+                "  policies=app-policy",
+            },
+            {
+                "title": "Enable AWS secrets engine",
+                "body": "Configure Vault to issue AWS credentials.",
+                "output": "AWS secrets engine configured via IRSA.",
+                "details": (
+                    "Enable the aws secrets engine and configure the region. Vault uses "
+                    "its IRSA identity to access AWS."
+                ),
+                "code": "vault secrets enable aws\n"
+                "vault write aws/config/root region=ap-south-1",
+            },
+            {
+                "title": "Create dynamic AWS role",
+                "body": "Define a role for short-lived S3 read credentials.",
+                "output": "Role ready to generate temporary IAM users.",
+                "details": (
+                    "Use credential_type=iam_user and a scoped policy document for S3."
+                ),
+                "code": "vault write aws/roles/s3-read \\\n"
+                "  credential_type=iam_user \\\n"
+                "  policy_document='{\n"
+                "    \"Version\": \"2012-10-17\",\n"
+                "    \"Statement\": [{\n"
+                "      \"Effect\": \"Allow\",\n"
+                "      \"Action\": [\"s3:ListBucket\"],\n"
+                "      \"Resource\": \"*\"\n"
+                "    }]\n"
+                "  }'",
+            },
+            {
+                "title": "Validate app flow",
+                "body": "Authenticate app pods and fetch dynamic credentials.",
+                "output": "Short-lived credentials issued and expire on TTL.",
+                "details": (
+                    "Use the app service account (AppIRSA) to authenticate to Vault, "
+                    "request AWS creds, and validate access expires after TTL."
+                ),
+                "code": "vault read aws/creds/s3-read\naws s3 ls",
+            },
+        ],
+        "deliverables": [
+            {
+                "title": "SSO access",
+                "body": "SSO role mapped to Kubernetes RBAC with kubectl access.",
+            },
+            {
+                "title": "Vault on EKS",
+                "body": "Vault deployed with IRSA and initialized/unsealed.",
+            },
+            {
+                "title": "Dynamic credentials",
+                "body": "Vault issues AWS credentials with TTL and auto-rotation.",
+            },
+        ],
+        "validation": [
+            "SSO users can access EKS without static IAM keys.",
+            "Vault authenticates to AWS via IRSA (no access keys in config).",
+            "Vault AWS auth accepts the AppIRSA identity.",
+            "Dynamic credentials expire and revoke access after TTL.",
+        ],
+        "resources": [
+            {
+                "title": "Vault Helm chart",
+                "body": "https://helm.releases.hashicorp.com",
+            },
+            {
+                "title": "IRSA docs",
+                "body": "https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html",
+            },
+            {
+                "title": "AWS SSO",
+                "body": "https://docs.aws.amazon.com/singlesignon/latest/userguide/what-is.html",
+            },
+            {
+                "title": "Vault AWS auth",
+                "body": "https://developer.hashicorp.com/vault/docs/auth/aws",
+            },
+        ],
+        "compare_enabled": False,
+        "automation_enabled": False,
+        "leaderboard_enabled": False,
+        "submission_enabled": False,
+        "form_cta": "Register endpoint",
+        "form_helper": "No submissions required for Lab 5.",
+        "sections": [
+            {
+                "title": "Target identity flow",
+                "items": [
+                    {
+                        "title": "Humans",
+                        "body": "AWS SSO -> IAM role -> Kubernetes RBAC.",
+                    },
+                    {
+                        "title": "Pods",
+                        "body": "IRSA service accounts -> IAM role -> Vault auth.",
+                    },
+                    {
+                        "title": "Secrets",
+                        "body": "Vault issues short-lived AWS credentials on demand.",
+                    },
+                ],
+            },
+            {
+                "title": "Learning objectives",
+                "items": [
+                    {
+                        "title": "SSO for EKS",
+                        "body": "Use AWS SSO for human authentication to the cluster.",
+                    },
+                    {
+                        "title": "IRSA for pods",
+                        "body": "Bind service accounts to IAM roles with OIDC.",
+                    },
+                    {
+                        "title": "Vault auth",
+                        "body": "Authenticate Vault using AWS IAM without static keys.",
+                    },
+                    {
+                        "title": "Dynamic secrets",
+                        "body": "Issue time-bound AWS credentials and enforce TTL.",
+                    },
+                ],
+            },
+            {
+                "title": "Assumptions",
+                "items": [
+                    {
+                        "title": "Existing EKS cluster",
+                        "body": "Cluster exists with OIDC provider enabled.",
+                    },
+                    {
+                        "title": "CLI access",
+                        "body": "awscli, kubectl, and helm installed locally.",
+                    },
+                    {
+                        "title": "Vault access",
+                        "body": "Operators can exec into the vault pod to initialize/unseal.",
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 
