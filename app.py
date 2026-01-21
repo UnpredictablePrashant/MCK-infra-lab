@@ -1462,6 +1462,306 @@ LABS = {
             },
         ],
     },
+    "lab5": {
+        "id": "lab5",
+        "code": "Lab 5",
+        "title": "GitOps on EKS with Argo CD + Flux",
+        "status": "Active",
+        "summary": (
+            "Convert an existing EKS cluster to GitOps using Argo CD and Flux "
+            "without redeploying the cluster or changing application code."
+        ),
+        "tagline": (
+            "Make Git the single source of truth, automate sync and drift "
+            "correction, and prove rollback and promotion via commits."
+        ),
+        "facts": [
+            {"title": "Level", "body": "Intermediate"},
+            {"title": "Estimated time", "body": "3 hours"},
+            {"title": "Primary focus", "body": "GitOps workflows + reconciliation"},
+            {"title": "Stack", "body": "EKS, Argo CD, Flux, Git"},
+        ],
+        "steps": [
+            {
+                "title": "Validate cluster access",
+                "body": "Confirm kubectl connectivity and namespaces.",
+                "output": "Nodes and namespaces visible.",
+                "details": (
+                    "The cluster must already exist and be reachable using your "
+                    "local kubeconfig."
+                ),
+                "code": "kubectl get nodes\nkubectl get ns",
+            },
+            {
+                "title": "Validate GratitudeApp",
+                "body": "Confirm the application is already running.",
+                "output": "Pods and services are present.",
+                "details": (
+                    "No application code changes are allowed for this lab. "
+                    "The GratitudeApp must be live before GitOps onboarding."
+                ),
+                "code": "kubectl get pods -A | grep gratitude\nkubectl get svc -A | grep gratitude",
+            },
+            {
+                "title": "Install Argo CD",
+                "body": "Deploy Argo CD into the cluster.",
+                "output": "argocd pods running.",
+                "details": (
+                    "Install Argo CD in the argocd namespace using the upstream manifest."
+                ),
+                "code": "kubectl create namespace argocd\n\n"
+                "kubectl apply -n argocd \\\n"
+                "  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml\n\n"
+                "kubectl -n argocd get pods",
+            },
+            {
+                "title": "Access Argo CD UI",
+                "body": "Port-forward and log in as admin.",
+                "output": "Argo CD UI reachable.",
+                "details": (
+                    "Retrieve the initial admin password from the secret and use "
+                    "port-forwarding to access the UI."
+                ),
+                "code": "kubectl -n argocd port-forward svc/argocd-server 8080:443\n\n"
+                "kubectl -n argocd get secret argocd-initial-admin-secret \\\n"
+                "  -o jsonpath=\"{.data.password}\" | base64 -d",
+            },
+            {
+                "title": "Prepare GitOps repository",
+                "body": "Create the GitOps repo structure for overlays.",
+                "output": "Repo layout matches Kustomize overlay expectations.",
+                "details": (
+                    "After this step, no application manifests are applied directly "
+                    "to the cluster outside GitOps tools."
+                ),
+                "code": "gitops-gratitudeapp/\n"
+                "  apps/\n"
+                "    gratitudeapp/\n"
+                "      base/\n"
+                "      overlays/\n"
+                "        dev/\n"
+                "        staging/",
+            },
+            {
+                "title": "Create Argo CD Application",
+                "body": "Point Argo CD at the dev overlay.",
+                "output": "gratitudeapp-dev shows Healthy and Synced.",
+                "details": (
+                    "Use automated sync with prune and self-heal enabled. "
+                    "Use a dedicated namespace for the dev environment."
+                ),
+                "code": "apiVersion: argoproj.io/v1alpha1\n"
+                "kind: Application\n"
+                "metadata:\n"
+                "  name: gratitudeapp-dev\n"
+                "  namespace: argocd\n"
+                "spec:\n"
+                "  source:\n"
+                "    repoURL: https://github.com/<org>/gitops-gratitudeapp.git\n"
+                "    targetRevision: main\n"
+                "    path: apps/gratitudeapp/overlays/dev\n"
+                "  destination:\n"
+                "    server: https://kubernetes.default.svc\n"
+                "    namespace: gratitude-dev\n"
+                "  syncPolicy:\n"
+                "    automated:\n"
+                "      prune: true\n"
+                "      selfHeal: true\n"
+                "---\n"
+                "kubectl apply -f app.yaml",
+            },
+            {
+                "title": "Git-driven scaling",
+                "body": "Change replicas from 2 to 4 via Git.",
+                "output": "Argo CD syncs automatically.",
+                "details": (
+                    "Commit and push the replicas change in Git, then verify the "
+                    "deployment size in gratitude-dev."
+                ),
+                "code": "kubectl -n gratitude-dev get deploy",
+            },
+            {
+                "title": "Drift detection (Argo CD)",
+                "body": "Manually scale and watch Argo CD self-heal.",
+                "output": "Argo CD reverts drift.",
+                "details": (
+                    "Use kubectl scale to introduce drift and watch Argo CD "
+                    "restore the desired state from Git."
+                ),
+                "code": "kubectl -n gratitude-dev scale deploy <service> --replicas=1",
+            },
+            {
+                "title": "Rollback via Git",
+                "body": "Introduce a broken config and revert using Git.",
+                "output": "Rollout recovers on revert commit.",
+                "details": (
+                    "Change the image tag to a bad value, observe failure, and then "
+                    "revert the commit. No kubectl rollback is allowed."
+                ),
+                "code": "git revert <bad-commit-sha>",
+            },
+            {
+                "title": "Install Flux",
+                "body": "Install Flux CLI and validate prerequisites.",
+                "output": "Flux pre-check passes.",
+                "details": (
+                    "Use the official install script and run a preflight check."
+                ),
+                "code": "curl -s https://fluxcd.io/install.sh | sudo bash\n"
+                "flux check --pre",
+            },
+            {
+                "title": "Bootstrap Flux",
+                "body": "Connect Flux to the GitOps repository.",
+                "output": "flux-system resources created.",
+                "details": (
+                    "Bootstrap writes Flux manifests into clusters/dev in the "
+                    "gitops-gratitudeapp repo."
+                ),
+                "code": "flux bootstrap github \\\n"
+                "  --owner=<org> \\\n"
+                "  --repository=gitops-gratitudeapp \\\n"
+                "  --branch=main \\\n"
+                "  --path=clusters/dev\n\n"
+                "flux get kustomizations -A",
+            },
+            {
+                "title": "Flux-managed deployment",
+                "body": "Add a Flux Kustomization for the dev overlay.",
+                "output": "Pods present in gratitude-dev namespace.",
+                "details": (
+                    "Flux should reconcile the Kustomization every minute and prune "
+                    "removed resources."
+                ),
+                "code": "apiVersion: kustomize.toolkit.fluxcd.io/v1\n"
+                "kind: Kustomization\n"
+                "metadata:\n"
+                "  name: gratitudeapp-dev\n"
+                "  namespace: flux-system\n"
+                "spec:\n"
+                "  interval: 1m\n"
+                "  path: ./apps/gratitudeapp/overlays/dev\n"
+                "  prune: true\n"
+                "  sourceRef:\n"
+                "    kind: GitRepository\n"
+                "    name: flux-system\n"
+                "---\n"
+                "kubectl get pods -n gratitude-dev",
+            },
+            {
+                "title": "Drift test (Flux)",
+                "body": "Manually edit a deployment and observe reconciliation.",
+                "output": "Flux returns state to Git.",
+                "details": (
+                    "Introduce drift and verify the Kustomization reports reconciliation."
+                ),
+                "code": "flux get kustomizations",
+            },
+            {
+                "title": "Document Argo CD vs Flux",
+                "body": "Compare sync model, UI, drift handling, and promotion strategy.",
+                "output": "Comparison table completed.",
+                "details": (
+                    "Document your observations for Argo CD and Flux based on lab results."
+                ),
+                "code": "Area | Argo CD | Flux\n"
+                "Sync model | | \n"
+                "UI | | \n"
+                "Drift handling | | \n"
+                "Promotion strategy | | ",
+            },
+        ],
+        "deliverables": [
+            {
+                "title": "Argo CD synced app",
+                "body": "Screenshot showing Healthy and Synced state.",
+            },
+            {
+                "title": "Flux output",
+                "body": "Output of `flux get kustomizations`.",
+            },
+            {
+                "title": "Git commit links",
+                "body": "Scaling change, broken change, and rollback commit links.",
+            },
+        ],
+        "validation": [
+            "Argo CD auto-syncs and self-heals from drift.",
+            "Flux reconciles Kustomization and prunes removed objects.",
+            "Rollbacks happen via Git only; no kubectl apply for workloads.",
+            "Comparison table captures Argo CD vs Flux trade-offs.",
+        ],
+        "resources": [
+            {
+                "title": "Argo CD docs",
+                "body": "https://argo-cd.readthedocs.io/en/stable/",
+            },
+            {
+                "title": "Flux docs",
+                "body": "https://fluxcd.io/docs/",
+            },
+            {
+                "title": "GitOps on EKS",
+                "body": "https://aws.amazon.com/blogs/containers/tag/gitops/",
+            },
+        ],
+        "compare_enabled": False,
+        "automation_enabled": False,
+        "leaderboard_enabled": False,
+        "submission_enabled": False,
+        "form_cta": "No submission required",
+        "form_helper": "Capture screenshots and commit links for your report.",
+        "sections": [
+            {
+                "title": "Constraints",
+                "items": [
+                    {
+                        "title": "No cluster recreation",
+                        "body": "Use the existing production-grade EKS cluster.",
+                    },
+                    {
+                        "title": "No app code changes",
+                        "body": "All changes are infrastructure and manifests only.",
+                    },
+                    {
+                        "title": "Git-only changes",
+                        "body": "No kubectl apply for application workloads after onboarding.",
+                    },
+                ],
+            },
+            {
+                "title": "Expected outcomes",
+                "items": [
+                    {
+                        "title": "Argo CD managed state",
+                        "body": "Application resources reconciled from Git.",
+                    },
+                    {
+                        "title": "Flux managed state",
+                        "body": "Kustomizations pull from Git on interval.",
+                    },
+                    {
+                        "title": "Automated drift handling",
+                        "body": "Self-heal for both tools validated.",
+                    },
+                    {
+                        "title": "Rollback discipline",
+                        "body": "Use Git revert to recover bad changes.",
+                    },
+                ],
+            },
+            {
+                "title": "Timeline",
+                "items": [
+                    {"title": "0-15 min", "body": "Environment validation."},
+                    {"title": "15-70 min", "body": "Argo CD installation and onboarding."},
+                    {"title": "70-110 min", "body": "GitOps operations with Argo CD."},
+                    {"title": "110-150 min", "body": "Flux installation and reconciliation."},
+                    {"title": "150-180 min", "body": "Rollback, drift, and validation."},
+                ],
+            },
+        ],
+    },
 }
 
 
@@ -1670,6 +1970,11 @@ def lab3():
 @app.get("/lab4")
 def lab4():
     return redirect(url_for("lab_detail", lab_id="lab4"))
+
+
+@app.get("/lab5")
+def lab5():
+    return redirect(url_for("lab_detail", lab_id="lab5"))
 
 
 @app.get("/downloads/<file_key>")
