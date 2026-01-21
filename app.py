@@ -1462,9 +1462,9 @@ LABS = {
             },
         ],
     },
-    "lab5": {
-        "id": "lab5",
-        "code": "Lab 5",
+    "lab6": {
+        "id": "lab6",
+        "code": "Lab 6",
         "title": "GitOps on EKS with Argo CD + Flux",
         "status": "Active",
         "summary": (
@@ -1975,6 +1975,11 @@ def lab4():
 @app.get("/lab5")
 def lab5():
     return redirect(url_for("lab_detail", lab_id="lab5"))
+
+
+@app.get("/lab6")
+def lab6():
+    return redirect(url_for("lab_detail", lab_id="lab6"))
 
 
 @app.get("/downloads/<file_key>")
