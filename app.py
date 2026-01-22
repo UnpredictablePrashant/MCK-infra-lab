@@ -1787,8 +1787,15 @@ LABS = {
                 "body": "Confirm aws-node is running and review recent logs.",
                 "output": "CNI daemonset healthy with recent log activity.",
                 "details": (
-                    "AWS VPC CNI is the default networking plugin on EKS. "
-                    "Pods receive VPC-routable IPs from node ENIs."
+                    "Concept: AWS VPC CNI allocates pod IPs from ENIs on each node. "
+                    "Why: if aws-node is unhealthy, pods may not get IPs. "
+                    "Approach: verify the daemonset and logs before making changes."
+                ),
+                "rationale": (
+                    "Real-world problem: outages often start with silent CNI failures. "
+                    "Why this step: early validation avoids chasing application bugs "
+                    "when the network plane is the root cause. "
+                    "How it helps: confirms the IPAM engine is healthy before scaling."
                 ),
                 "code": "kubectl -n kube-system get ds aws-node\n"
                 "kubectl -n kube-system logs ds/aws-node -c aws-node --tail=50",
@@ -1798,8 +1805,14 @@ LABS = {
                 "body": "Confirm pods have VPC CIDR IPs and nodes show multiple ENIs.",
                 "output": "Pod IPs match the VPC CIDR and nodes have VPC addresses.",
                 "details": (
-                    "Use the wide output to see pod and node IPs. Note if pod IPs "
-                    "align with your VPC subnet range."
+                    "Concept: pod IPs are first-class VPC addresses. "
+                    "Why: VPC-routable IPs enable native routing but introduce IP limits. "
+                    "Approach: compare pod IPs to the VPC CIDR and note node IPs."
+                ),
+                "rationale": (
+                    "Real-world problem: mismatched subnets cause routing blackholes. "
+                    "Why this step: validating CIDRs prevents misconfiguration later. "
+                    "How it helps: ensures pods are reachable via VPC routing."
                 ),
                 "code": "kubectl get pods -o wide\nkubectl get nodes -o wide",
             },
@@ -1808,8 +1821,14 @@ LABS = {
                 "body": "Deploy a small workload and observe placement.",
                 "output": "Pods spread across nodes with routable IPs.",
                 "details": (
-                    "Use any small deployment and inspect pod IPs and nodes to "
-                    "understand IP allocation behavior."
+                    "Concept: each node attaches ENIs and allocates secondary IPs to pods. "
+                    "Why: IP distribution affects scheduling and density. "
+                    "Approach: deploy a small workload and inspect pod-to-node mapping."
+                ),
+                "rationale": (
+                    "Real-world problem: uneven IP distribution creates hot nodes. "
+                    "Why this step: placement visibility reveals node-level IP pressure. "
+                    "How it helps: informs scaling and instance type decisions."
                 ),
                 "code": "kubectl apply -f https://k8s.io/examples/application/guestbook/redis-leader-deployment.yaml\n"
                 "kubectl get pods -o wide",
@@ -1819,8 +1838,14 @@ LABS = {
                 "body": "Over-schedule small pods to trigger IP shortage.",
                 "output": "Pods stuck Pending and events show IP assignment issues.",
                 "details": (
-                    "This reproduces the most common EKS networking outage: "
-                    "nodes still have CPU/RAM but no IPs left for new pods."
+                    "Concept: instance types have ENI/IP limits that cap pod density. "
+                    "Why: pods can remain Pending even with free CPU/RAM. "
+                    "Approach: over-schedule to trigger IP allocation failure."
+                ),
+                "rationale": (
+                    "Real-world problem: production outages from IP exhaustion are common. "
+                    "Why this step: controlled failure makes the limits visible. "
+                    "How it helps: teaches recognition of IPAM symptoms in events."
                 ),
                 "code": "kubectl create deploy ip-stress --image=busybox --replicas=300 -- sleep 3600\n"
                 "kubectl get pods\n"
@@ -1831,8 +1856,14 @@ LABS = {
                 "body": "Review CNI logs for IP allocation failures.",
                 "output": "Log entries show IP exhaustion or ENI limits.",
                 "details": (
-                    "Look for messages indicating failure to assign pod IPs or "
-                    "reached ENI/IP limits for the node instance type."
+                    "Concept: aws-node logs reflect IPAM behavior and failures. "
+                    "Why: events alone do not show the precise IPAM error. "
+                    "Approach: read CNI logs for ENI/IP exhaustion messages."
+                ),
+                "rationale": (
+                    "Real-world problem: pending pods often lack clear root cause. "
+                    "Why this step: logs provide exact failure reasons. "
+                    "How it helps: speeds incident resolution with concrete evidence."
                 ),
                 "code": "kubectl -n kube-system logs ds/aws-node -c aws-node --tail=80",
             },
@@ -1841,8 +1872,14 @@ LABS = {
                 "body": "Increase warm IP pool to reduce allocation latency.",
                 "output": "aws-node restarts and pre-allocates more IPs.",
                 "details": (
-                    "Warm IP tuning reduces scheduling latency during bursts. "
-                    "Restart the daemonset to apply updated environment values."
+                    "Concept: warm IPs are pre-allocated to reduce pod startup time. "
+                    "Why: on-demand IP allocation can delay scheduling. "
+                    "Approach: increase warm targets and restart aws-node."
+                ),
+                "rationale": (
+                    "Real-world problem: burst traffic causes slow pod scaling. "
+                    "Why this step: pre-allocating IPs removes a bottleneck. "
+                    "How it helps: improves responsiveness during spikes."
                 ),
                 "code": "kubectl -n kube-system set env ds/aws-node WARM_IP_TARGET=15\n"
                 "kubectl -n kube-system set env ds/aws-node MINIMUM_IP_TARGET=10\n"
@@ -1853,8 +1890,14 @@ LABS = {
                 "body": "Check CNI logs and verify scheduling improves.",
                 "output": "Logs show warm pool behavior and fewer Pending pods.",
                 "details": (
-                    "Re-check the CNI logs after the restart to confirm warm IP pool "
-                    "settings are applied."
+                    "Concept: warm IP pool status is visible in CNI logs. "
+                    "Why: tuning is ineffective if env vars are not applied. "
+                    "Approach: verify logs and re-check pod scheduling."
+                ),
+                "rationale": (
+                    "Real-world problem: config changes can be ignored silently. "
+                    "Why this step: validates that tuning is active in the CNI. "
+                    "How it helps: prevents false confidence in optimization."
                 ),
                 "code": "kubectl -n kube-system logs ds/aws-node -c aws-node --tail=50\n"
                 "kubectl get pods | tail -n 20",
@@ -1864,8 +1907,14 @@ LABS = {
                 "body": "Increase pod density per node using prefix delegation.",
                 "output": "Nodes support more pod IPs per ENI.",
                 "details": (
-                    "Prefix delegation increases the number of IPs per ENI and "
-                    "improves pod scaling. Requires compatible EKS versions."
+                    "Concept: prefix delegation assigns IP prefixes instead of singles. "
+                    "Why: higher pod density per ENI reduces IP exhaustion risk. "
+                    "Approach: enable prefix delegation on supported EKS/CNI versions."
+                ),
+                "rationale": (
+                    "Real-world problem: large clusters hit IP limits quickly. "
+                    "Why this step: prefix delegation raises pod ceilings per node. "
+                    "How it helps: reduces the need for rapid node scale-out."
                 ),
                 "code": "kubectl -n kube-system set env ds/aws-node ENABLE_PREFIX_DELEGATION=true\n"
                 "kubectl -n kube-system rollout restart ds/aws-node",
@@ -1875,8 +1924,14 @@ LABS = {
                 "body": "Add NetworkPolicy support in chaining or policy-only mode.",
                 "output": "Policy engine running alongside AWS VPC CNI.",
                 "details": (
-                    "AWS VPC CNI does not enforce NetworkPolicies. Use Cilium in "
-                    "chaining mode or Calico in policy-only mode."
+                    "Concept: AWS VPC CNI provides IPs but not policy enforcement. "
+                    "Why: NetworkPolicy objects are ignored without a policy engine. "
+                    "Approach: install Cilium (chaining) or Calico (policy-only)."
+                ),
+                "rationale": (
+                    "Real-world problem: teams assume policies are enforced but they are not. "
+                    "Why this step: adds the missing enforcement plane. "
+                    "How it helps: enables least-privilege network segmentation."
                 ),
                 "code": "cilium status\nkubectl get pods -n kube-system | grep -E \"cilium|calico\"",
             },
@@ -1885,8 +1940,14 @@ LABS = {
                 "body": "Block all ingress and egress in the default namespace.",
                 "output": "Traffic stops between pods unless explicitly allowed.",
                 "details": (
-                    "Start with a default deny policy, then add allow rules to "
-                    "validate enforcement."
+                    "Concept: default deny establishes a zero-trust baseline. "
+                    "Why: without it, implicit allow makes policy gaps invisible. "
+                    "Approach: apply deny-all and then layer allow rules."
+                ),
+                "rationale": (
+                    "Real-world problem: lateral movement after compromise. "
+                    "Why this step: forces explicit connectivity decisions. "
+                    "How it helps: reduces blast radius for breaches."
                 ),
                 "code": "apiVersion: networking.k8s.io/v1\n"
                 "kind: NetworkPolicy\n"
@@ -1904,8 +1965,14 @@ LABS = {
                 "body": "Create a targeted allow policy for app traffic.",
                 "output": "Frontend can reach backend; other traffic is blocked.",
                 "details": (
-                    "Use labels on frontend/backend pods to scope the policy. "
-                    "Test connectivity using curl or netcat."
+                    "Concept: allow lists restrict traffic to explicit sources. "
+                    "Why: least-privilege reduces lateral movement risk. "
+                    "Approach: match labels for frontend and backend and test access."
+                ),
+                "rationale": (
+                    "Real-world problem: unrestricted service access increases attack surface. "
+                    "Why this step: documents the exact allowed paths. "
+                    "How it helps: encodes service contracts into policy."
                 ),
                 "code": "apiVersion: networking.k8s.io/v1\n"
                 "kind: NetworkPolicy\n"
@@ -1929,7 +1996,14 @@ LABS = {
                 "body": "Monitor denied traffic for evidence of enforcement.",
                 "output": "Drop events visible in the Cilium monitor.",
                 "details": (
-                    "Use Cilium to observe live drops for blocked flows."
+                    "Concept: flow visibility confirms policy enforcement. "
+                    "Why: logs prove drops when connectivity tests fail. "
+                    "Approach: use Cilium monitor to view dropped traffic."
+                ),
+                "rationale": (
+                    "Real-world problem: teams lack proof when debugging policies. "
+                    "Why this step: provides verifiable evidence of blocked flows. "
+                    "How it helps: speeds policy debugging and audit trails."
                 ),
                 "code": "cilium monitor --type drop",
             },
@@ -1938,8 +2012,14 @@ LABS = {
                 "body": "Debug DNS, service routing, and IP allocation failures.",
                 "output": "Root cause identified for common networking failures.",
                 "details": (
-                    "Use aws-node logs, node description, and endpoints to narrow "
-                    "down DNS, service, or IP exhaustion issues."
+                    "Concept: networking issues often span DNS, services, and IPAM. "
+                    "Why: symptoms can look similar without structured checks. "
+                    "Approach: inspect CNI logs, node details, and endpoints."
+                ),
+                "rationale": (
+                    "Real-world problem: high-severity outages require fast triage. "
+                    "Why this step: a consistent checklist reduces mean time to recovery. "
+                    "How it helps: isolates DNS vs service vs IPAM issues quickly."
                 ),
                 "code": "kubectl -n kube-system logs ds/aws-node -c aws-node\n"
                 "kubectl -n kube-system logs ds/aws-node -c aws-vpc-cni-init\n"
