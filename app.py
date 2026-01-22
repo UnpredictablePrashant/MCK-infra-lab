@@ -1762,6 +1762,290 @@ LABS = {
             },
         ],
     },
+    "lab7": {
+        "id": "lab7",
+        "code": "Lab 7",
+        "title": "EKS Networking Masterclass: AWS VPC CNI + Policies + Debugging",
+        "status": "Active",
+        "summary": (
+            "Deep dive into AWS VPC CNI behavior, IP exhaustion, warm IP tuning, "
+            "custom CNI policy enforcement, and production-grade troubleshooting."
+        ),
+        "tagline": (
+            "Understand VPC-routable pod IPs, simulate IP exhaustion, optimize "
+            "allocation, enforce NetworkPolicy, and debug CNI issues like an SRE."
+        ),
+        "facts": [
+            {"title": "Level", "body": "Advanced"},
+            {"title": "Estimated time", "body": "2.5-3 hours"},
+            {"title": "Primary focus", "body": "EKS networking + policy enforcement"},
+            {"title": "Stack", "body": "EKS, AWS VPC CNI, Cilium/Calico"},
+        ],
+        "steps": [
+            {
+                "title": "Baseline: inspect AWS VPC CNI",
+                "body": "Confirm aws-node is running and review recent logs.",
+                "output": "CNI daemonset healthy with recent log activity.",
+                "details": (
+                    "AWS VPC CNI is the default networking plugin on EKS. "
+                    "Pods receive VPC-routable IPs from node ENIs."
+                ),
+                "code": "kubectl -n kube-system get ds aws-node\n"
+                "kubectl -n kube-system logs ds/aws-node -c aws-node --tail=50",
+            },
+            {
+                "title": "Verify pod and node IPs",
+                "body": "Confirm pods have VPC CIDR IPs and nodes show multiple ENIs.",
+                "output": "Pod IPs match the VPC CIDR and nodes have VPC addresses.",
+                "details": (
+                    "Use the wide output to see pod and node IPs. Note if pod IPs "
+                    "align with your VPC subnet range."
+                ),
+                "code": "kubectl get pods -o wide\nkubectl get nodes -o wide",
+            },
+            {
+                "title": "Visualize IP allocation per node",
+                "body": "Deploy a small workload and observe placement.",
+                "output": "Pods spread across nodes with routable IPs.",
+                "details": (
+                    "Use any small deployment and inspect pod IPs and nodes to "
+                    "understand IP allocation behavior."
+                ),
+                "code": "kubectl apply -f https://k8s.io/examples/application/guestbook/redis-leader-deployment.yaml\n"
+                "kubectl get pods -o wide",
+            },
+            {
+                "title": "Simulate IP exhaustion",
+                "body": "Over-schedule small pods to trigger IP shortage.",
+                "output": "Pods stuck Pending and events show IP assignment issues.",
+                "details": (
+                    "This reproduces the most common EKS networking outage: "
+                    "nodes still have CPU/RAM but no IPs left for new pods."
+                ),
+                "code": "kubectl create deploy ip-stress --image=busybox --replicas=300 -- sleep 3600\n"
+                "kubectl get pods\n"
+                "kubectl get events --sort-by=.lastTimestamp | tail -40",
+            },
+            {
+                "title": "Inspect aws-node errors",
+                "body": "Review CNI logs for IP allocation failures.",
+                "output": "Log entries show IP exhaustion or ENI limits.",
+                "details": (
+                    "Look for messages indicating failure to assign pod IPs or "
+                    "reached ENI/IP limits for the node instance type."
+                ),
+                "code": "kubectl -n kube-system logs ds/aws-node -c aws-node --tail=80",
+            },
+            {
+                "title": "Tune warm IP targets",
+                "body": "Increase warm IP pool to reduce allocation latency.",
+                "output": "aws-node restarts and pre-allocates more IPs.",
+                "details": (
+                    "Warm IP tuning reduces scheduling latency during bursts. "
+                    "Restart the daemonset to apply updated environment values."
+                ),
+                "code": "kubectl -n kube-system set env ds/aws-node WARM_IP_TARGET=15\n"
+                "kubectl -n kube-system set env ds/aws-node MINIMUM_IP_TARGET=10\n"
+                "kubectl -n kube-system rollout restart ds/aws-node",
+            },
+            {
+                "title": "Validate post-tuning behavior",
+                "body": "Check CNI logs and verify scheduling improves.",
+                "output": "Logs show warm pool behavior and fewer Pending pods.",
+                "details": (
+                    "Re-check the CNI logs after the restart to confirm warm IP pool "
+                    "settings are applied."
+                ),
+                "code": "kubectl -n kube-system logs ds/aws-node -c aws-node --tail=50\n"
+                "kubectl get pods | tail -n 20",
+            },
+            {
+                "title": "Optional: enable prefix delegation",
+                "body": "Increase pod density per node using prefix delegation.",
+                "output": "Nodes support more pod IPs per ENI.",
+                "details": (
+                    "Prefix delegation increases the number of IPs per ENI and "
+                    "improves pod scaling. Requires compatible EKS versions."
+                ),
+                "code": "kubectl -n kube-system set env ds/aws-node ENABLE_PREFIX_DELEGATION=true\n"
+                "kubectl -n kube-system rollout restart ds/aws-node",
+            },
+            {
+                "title": "Install policy engine (Cilium or Calico)",
+                "body": "Add NetworkPolicy support in chaining or policy-only mode.",
+                "output": "Policy engine running alongside AWS VPC CNI.",
+                "details": (
+                    "AWS VPC CNI does not enforce NetworkPolicies. Use Cilium in "
+                    "chaining mode or Calico in policy-only mode."
+                ),
+                "code": "cilium status\nkubectl get pods -n kube-system | grep -E \"cilium|calico\"",
+            },
+            {
+                "title": "Apply deny-all NetworkPolicy",
+                "body": "Block all ingress and egress in the default namespace.",
+                "output": "Traffic stops between pods unless explicitly allowed.",
+                "details": (
+                    "Start with a default deny policy, then add allow rules to "
+                    "validate enforcement."
+                ),
+                "code": "apiVersion: networking.k8s.io/v1\n"
+                "kind: NetworkPolicy\n"
+                "metadata:\n"
+                "  name: deny-all\n"
+                "  namespace: default\n"
+                "spec:\n"
+                "  podSelector: {}\n"
+                "  policyTypes:\n"
+                "  - Ingress\n"
+                "  - Egress",
+            },
+            {
+                "title": "Allow frontend to backend only",
+                "body": "Create a targeted allow policy for app traffic.",
+                "output": "Frontend can reach backend; other traffic is blocked.",
+                "details": (
+                    "Use labels on frontend/backend pods to scope the policy. "
+                    "Test connectivity using curl or netcat."
+                ),
+                "code": "apiVersion: networking.k8s.io/v1\n"
+                "kind: NetworkPolicy\n"
+                "metadata:\n"
+                "  name: allow-frontend-to-backend\n"
+                "  namespace: default\n"
+                "spec:\n"
+                "  podSelector:\n"
+                "    matchLabels:\n"
+                "      app: backend\n"
+                "  ingress:\n"
+                "  - from:\n"
+                "    - podSelector:\n"
+                "        matchLabels:\n"
+                "          app: frontend\n"
+                "  policyTypes:\n"
+                "  - Ingress",
+            },
+            {
+                "title": "Observe drops (Cilium)",
+                "body": "Monitor denied traffic for evidence of enforcement.",
+                "output": "Drop events visible in the Cilium monitor.",
+                "details": (
+                    "Use Cilium to observe live drops for blocked flows."
+                ),
+                "code": "cilium monitor --type drop",
+            },
+            {
+                "title": "Troubleshooting checklist",
+                "body": "Debug DNS, service routing, and IP allocation failures.",
+                "output": "Root cause identified for common networking failures.",
+                "details": (
+                    "Use aws-node logs, node description, and endpoints to narrow "
+                    "down DNS, service, or IP exhaustion issues."
+                ),
+                "code": "kubectl -n kube-system logs ds/aws-node -c aws-node\n"
+                "kubectl -n kube-system logs ds/aws-node -c aws-vpc-cni-init\n"
+                "kubectl describe node <node>\n"
+                "kubectl get endpoints -A",
+            },
+        ],
+        "deliverables": [
+            {
+                "title": "IP exhaustion evidence",
+                "body": "Events or logs showing pod scheduling blocked by IP limits.",
+            },
+            {
+                "title": "Warm IP tuning proof",
+                "body": "aws-node rollout and logs showing warm pool settings.",
+            },
+            {
+                "title": "NetworkPolicy enforcement",
+                "body": "Proof of deny-all and allow-only rules working.",
+            },
+            {
+                "title": "Troubleshooting notes",
+                "body": "Short write-up on root cause and fix for one failure.",
+            },
+        ],
+        "validation": [
+            "Pods show VPC-routable IPs and aws-node is healthy.",
+            "IP exhaustion reproduces Pending pods with relevant events/logs.",
+            "Warm IP tuning or prefix delegation improves scheduling behavior.",
+            "NetworkPolicy enforcement verified with a policy engine.",
+            "Troubleshooting commands identify DNS/service/IP issues.",
+        ],
+        "resources": [
+            {
+                "title": "AWS VPC CNI",
+                "body": "https://docs.aws.amazon.com/eks/latest/userguide/managing-vpc-cni.html",
+            },
+            {
+                "title": "CNI troubleshooting",
+                "body": "https://docs.aws.amazon.com/eks/latest/userguide/troubleshooting.html",
+            },
+            {
+                "title": "Cilium docs",
+                "body": "https://docs.cilium.io/en/stable/",
+            },
+            {
+                "title": "Calico policy-only",
+                "body": "https://docs.tigera.io/calico/latest/network-policy",
+            },
+        ],
+        "compare_enabled": False,
+        "automation_enabled": False,
+        "leaderboard_enabled": False,
+        "submission_enabled": False,
+        "form_cta": "No submission required",
+        "form_helper": "Capture logs and screenshots for your report.",
+        "sections": [
+            {
+                "title": "Key concepts",
+                "items": [
+                    {
+                        "title": "ENIs and IP limits",
+                        "body": "Pod IPs are assigned from ENIs and constrained per instance type.",
+                    },
+                    {
+                        "title": "Warm IP pool",
+                        "body": "Warm IPs reduce pod startup latency during bursts.",
+                    },
+                    {
+                        "title": "Policy enforcement",
+                        "body": "AWS VPC CNI needs a policy engine for NetworkPolicies.",
+                    },
+                ],
+            },
+            {
+                "title": "Lab modules",
+                "items": [
+                    {"title": "Module 1", "body": "Inspect AWS VPC CNI and pod IPs."},
+                    {"title": "Module 2", "body": "Visualize IP allocation per node."},
+                    {"title": "Module 3", "body": "Simulate IP exhaustion and events."},
+                    {"title": "Module 4", "body": "Tune warm IP targets and restart CNI."},
+                    {"title": "Module 5", "body": "Install Cilium or Calico for policy."},
+                    {"title": "Module 6", "body": "Apply deny-all and allow rules."},
+                    {"title": "Module 7", "body": "Observe drops with Cilium."},
+                    {"title": "Module 8", "body": "Troubleshooting checklist round."},
+                ],
+            },
+            {
+                "title": "Assessment prompts",
+                "items": [
+                    {
+                        "title": "Why pods pending?",
+                        "body": "Explain ENI/IP exhaustion and instance type limits.",
+                    },
+                    {
+                        "title": "SG for pods vs NetworkPolicy",
+                        "body": "Compare AWS VPC security groups and K8s policies.",
+                    },
+                    {
+                        "title": "Design for banking",
+                        "body": "Separate pod subnets, SG for pods, and policy engine.",
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 
@@ -1980,6 +2264,11 @@ def lab5():
 @app.get("/lab6")
 def lab6():
     return redirect(url_for("lab_detail", lab_id="lab6"))
+
+
+@app.get("/lab7")
+def lab7():
+    return redirect(url_for("lab_detail", lab_id="lab7"))
 
 
 @app.get("/downloads/<file_key>")
