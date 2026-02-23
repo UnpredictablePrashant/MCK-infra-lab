@@ -1183,280 +1183,237 @@ LABS = {
     "lab5": {
         "id": "lab5",
         "code": "Lab 5",
-        "title": "Identity & Secrets on EKS: AWS SSO + IRSA + Vault",
+        "title": "RBAC over EKS: IAM User + aws-auth + RoleBinding",
         "status": "Active",
         "summary": (
-            "Implement enterprise identity and secrets flows: AWS SSO for humans, "
-            "IRSA for pods, and Vault for dynamic AWS credentials."
+            "Create an IAM user for CLI-based EKS access, map it through aws-auth, "
+            "and enforce namespace-scoped permissions with Kubernetes RBAC."
         ),
         "tagline": (
-            "Authenticate humans via AWS SSO, authenticate pods via IRSA, and issue "
-            "short-lived AWS credentials from Vault inside EKS."
+            "Grant controlled default-namespace access for a developer user while "
+            "blocking cluster-admin actions and cross-namespace privilege."
         ),
         "facts": [
-            {"title": "Level", "body": "Senior"},
-            {"title": "Estimated time", "body": "3-4 hours"},
-            {"title": "Primary focus", "body": "Identity + secrets management"},
-            {"title": "Stack", "body": "AWS SSO, EKS, IRSA, Vault, IAM"},
+            {"title": "Level", "body": "Intermediate"},
+            {"title": "Estimated time", "body": "1.5-2 hours"},
+            {"title": "Primary focus", "body": "EKS authentication + Kubernetes RBAC"},
+            {"title": "Stack", "body": "IAM, EKS, aws-auth ConfigMap, Role, RoleBinding"},
         ],
         "steps": [
             {
-                "title": "Create SSO permission set",
-                "body": "Provision an AWS SSO permission set for EKS admins.",
-                "output": "Permission set assigned to the platform engineer.",
+                "title": "Create IAM user for programmatic access",
+                "body": "Create an IAM user and attach EKS cluster access policy.",
+                "output": "User demo-eks-user has CLI credentials and EKS policy attached.",
                 "details": (
-                    "Create permission set EKS-Platform-Admin with AmazonEKSClusterPolicy, "
-                    "AmazonEKSServicePolicy, and a custom policy for eks:DescribeCluster."
+                    "Create IAM user demo-eks-user with programmatic access. "
+                    "Attach AmazonEKSClusterPolicy so the user can talk to EKS APIs."
                 ),
-                "code": "aws ssoadmin create-permission-set --name EKS-Platform-Admin",
+                "rationale": (
+                    "Real-world problem: teams often over-share admin credentials for kubectl. "
+                    "Why this step: create a distinct identity for least-privilege access. "
+                    "How it helps: enables traceable, scoped access per user."
+                ),
+                "code": "aws iam create-user --user-name demo-eks-user\n"
+                "aws iam attach-user-policy --user-name demo-eks-user "
+                "--policy-arn arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
             },
             {
-                "title": "Map SSO role to Kubernetes RBAC",
-                "body": "Bind the SSO IAM role to system:masters.",
-                "output": "SSO users can access the cluster via kubectl.",
+                "title": "Map IAM user in aws-auth ConfigMap",
+                "body": "Add the IAM user mapping to EKS authentication config.",
+                "output": "IAM user maps to username dev-user and group dev-group.",
                 "details": (
-                    "Update aws-auth ConfigMap with the AWSReservedSSO role ARN so "
-                    "SSO users are mapped into Kubernetes RBAC."
+                    "EKS authenticates IAM identities through the aws-auth ConfigMap. "
+                    "Add mapUsers entry for your IAM user ARN and place it in dev-group."
                 ),
-                "code": "mapRoles: |\n"
-                "  - rolearn: arn:aws:iam::<account-id>:role/AWSReservedSSO_EKS-Platform-Admin_*\n"
-                "    username: sso-admin\n"
+                "rationale": (
+                    "Real-world problem: IAM permissions alone do not grant kubectl access. "
+                    "Why this step: aws-auth links IAM identity to Kubernetes principals. "
+                    "How it helps: enables RBAC-driven authorization inside the cluster."
+                ),
+                "code": "kubectl edit configmap aws-auth -n kube-system\n"
+                "mapUsers: |\n"
+                "  - userarn: arn:aws:iam::<account-id>:user/demo-eks-user\n"
+                "    username: dev-user\n"
                 "    groups:\n"
-                "      - system:masters",
+                "      - dev-group",
             },
             {
-                "title": "Validate human access",
-                "body": "Verify SSO login and cluster access.",
-                "output": "kubectl works without long-lived keys.",
+                "title": "Create and apply namespace Role",
+                "body": "Define permissions for app resources in default namespace.",
+                "output": "developer-role allows CRUD for workloads and services in default.",
                 "details": (
-                    "Use aws sso login and run kubectl get nodes to confirm access."
+                    "Create Role developer-role in namespace default for pods, services, "
+                    "deployments, and replicasets with get/list/watch/create/update/delete."
                 ),
-                "code": "aws sso login\nkubectl get nodes",
-            },
-            {
-                "title": "Create Vault IRSA role",
-                "body": "Create an IAM role that Vault will assume via OIDC.",
-                "output": "IRSA role with trust policy for vault-sa.",
-                "details": (
-                    "Use a trust policy for sts:AssumeRoleWithWebIdentity bound to the "
-                    "vault namespace service account. Attach IAM permissions to create "
-                    "temporary users and policies."
+                "rationale": (
+                    "Real-world problem: developers need app-level control, not cluster admin. "
+                    "Why this step: Role scopes actions to a namespace and resource set. "
+                    "How it helps: enforces least privilege while preserving productivity."
                 ),
-                "code": "{\n"
-                "  \"Version\": \"2012-10-17\",\n"
-                "  \"Statement\": [{\n"
-                "    \"Effect\": \"Allow\",\n"
-                "    \"Principal\": {\n"
-                "      \"Federated\": \"arn:aws:iam::<account-id>:oidc-provider/<oidc-url>\"\n"
-                "    },\n"
-                "    \"Action\": \"sts:AssumeRoleWithWebIdentity\",\n"
-                "    \"Condition\": {\n"
-                "      \"StringEquals\": {\n"
-                "        \"<oidc-url>:sub\": \"system:serviceaccount:vault:vault-sa\"\n"
-                "      }\n"
-                "    }\n"
-                "  }]\n"
-                "}",
-            },
-            {
-                "title": "Create Vault service account",
-                "body": "Bind the IRSA role to the Vault service account.",
-                "output": "vault-sa created with role annotation.",
-                "details": (
-                    "Deploy vault-sa in the vault namespace with the IRSA role ARN."
-                ),
-                "code": "apiVersion: v1\n"
-                "kind: ServiceAccount\n"
+                "code": "apiVersion: rbac.authorization.k8s.io/v1\n"
+                "kind: Role\n"
                 "metadata:\n"
-                "  name: vault-sa\n"
-                "  namespace: vault\n"
-                "  annotations:\n"
-                "    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/VaultIRSA",
+                "  namespace: default\n"
+                "  name: developer-role\n"
+                "rules:\n"
+                "- apiGroups: [\"\", \"apps\"]\n"
+                "  resources:\n"
+                "    - pods\n"
+                "    - services\n"
+                "    - deployments\n"
+                "    - replicasets\n"
+                "  verbs:\n"
+                "    - get\n"
+                "    - list\n"
+                "    - watch\n"
+                "    - create\n"
+                "    - update\n"
+                "    - delete\n"
+                "kubectl apply -f developer-role.yml",
             },
             {
-                "title": "Install Vault via Helm",
-                "body": "Deploy Vault into the cluster.",
-                "output": "Vault pod running in the vault namespace.",
+                "title": "Bind Role to dev-group",
+                "body": "Create RoleBinding so mapped IAM user inherits developer-role.",
+                "output": "dev-group receives permissions in namespace default.",
                 "details": (
-                    "Install the HashiCorp Vault Helm chart and configure it to use "
-                    "vault-sa for IRSA."
+                    "Create RoleBinding developer-binding in default namespace with "
+                    "subject kind Group name dev-group and roleRef developer-role."
                 ),
-                "code": "helm repo add hashicorp https://helm.releases.hashicorp.com\n"
-                "helm install vault hashicorp/vault \\\n"
-                "  --namespace vault --create-namespace \\\n"
-                "  --set server.serviceAccount.name=vault-sa \\\n"
-                "  --set server.ha.enabled=false",
+                "rationale": (
+                    "Real-world problem: identity mappings exist, but no permissions bind to them. "
+                    "Why this step: RoleBinding connects the group to actual allowed actions. "
+                    "How it helps: converts authentication into effective authorization."
+                ),
+                "code": "apiVersion: rbac.authorization.k8s.io/v1\n"
+                "kind: RoleBinding\n"
+                "metadata:\n"
+                "  name: developer-binding\n"
+                "  namespace: default\n"
+                "subjects:\n"
+                "- kind: Group\n"
+                "  name: dev-group\n"
+                "  apiGroup: rbac.authorization.k8s.io\n"
+                "roleRef:\n"
+                "  kind: Role\n"
+                "  name: developer-role\n"
+                "  apiGroup: rbac.authorization.k8s.io\n"
+                "kubectl apply -f developer-binding.yaml",
             },
             {
-                "title": "Initialize and unseal Vault",
-                "body": "Initialize and unseal the Vault server.",
-                "output": "Vault ready to serve requests.",
+                "title": "Configure IAM user kubeconfig and validate access",
+                "body": "Use IAM credentials to access cluster and test allowed/denied actions.",
+                "output": "User can manage default namespace workloads but cannot do admin tasks.",
                 "details": (
-                    "Initialize the cluster, store the unseal keys securely, and unseal."
+                    "Configure AWS CLI with demo-eks-user credentials, update kubeconfig, and test "
+                    "expected access pattern: allowed for pods/deployments/services in default, "
+                    "denied for node deletion, RBAC changes, and other namespaces."
                 ),
-                "code": "kubectl exec -n vault vault-0 -- vault operator init\n"
-                "kubectl exec -n vault vault-0 -- vault operator unseal",
-            },
-            {
-                "title": "Enable AWS auth",
-                "body": "Configure Vault to accept AWS IAM auth.",
-                "output": "AWS auth method enabled in Vault.",
-                "details": (
-                    "Enable the AWS auth method and set the target AWS region."
+                "rationale": (
+                    "Real-world problem: RBAC design is incomplete without negative tests. "
+                    "Why this step: confirms enforced boundaries and avoids false assumptions. "
+                    "How it helps: proves least-privilege behavior for audit readiness."
                 ),
-                "code": "vault auth enable aws\n"
-                "vault write auth/aws/config/client sts_region=ap-south-1",
-            },
-            {
-                "title": "Bind Vault role to app IRSA",
-                "body": "Create a Vault role for an app IRSA identity.",
-                "output": "Vault role tied to the AppIRSA role ARN.",
-                "details": (
-                    "Configure a Vault role with auth_type=iam and bind it to the "
-                    "AppIRSA principal so pods can authenticate without static keys."
-                ),
-                "code": "vault write auth/aws/role/eks-app \\\n"
-                "  auth_type=iam \\\n"
-                "  bound_iam_principal_arn=arn:aws:iam::<account-id>:role/AppIRSA \\\n"
-                "  policies=app-policy",
-            },
-            {
-                "title": "Enable AWS secrets engine",
-                "body": "Configure Vault to issue AWS credentials.",
-                "output": "AWS secrets engine configured via IRSA.",
-                "details": (
-                    "Enable the aws secrets engine and configure the region. Vault uses "
-                    "its IRSA identity to access AWS."
-                ),
-                "code": "vault secrets enable aws\n"
-                "vault write aws/config/root region=ap-south-1",
-            },
-            {
-                "title": "Create dynamic AWS role",
-                "body": "Define a role for short-lived S3 read credentials.",
-                "output": "Role ready to generate temporary IAM users.",
-                "details": (
-                    "Use credential_type=iam_user and a scoped policy document for S3."
-                ),
-                "code": "vault write aws/roles/s3-read \\\n"
-                "  credential_type=iam_user \\\n"
-                "  policy_document='{\n"
-                "    \"Version\": \"2012-10-17\",\n"
-                "    \"Statement\": [{\n"
-                "      \"Effect\": \"Allow\",\n"
-                "      \"Action\": [\"s3:ListBucket\"],\n"
-                "      \"Resource\": \"*\"\n"
-                "    }]\n"
-                "  }'",
-            },
-            {
-                "title": "Validate app flow",
-                "body": "Authenticate app pods and fetch dynamic credentials.",
-                "output": "Short-lived credentials issued and expire on TTL.",
-                "details": (
-                    "Use the app service account (AppIRSA) to authenticate to Vault, "
-                    "request AWS creds, and validate access expires after TTL."
-                ),
-                "code": "vault read aws/creds/s3-read\naws s3 ls",
+                "code": "aws configure\n"
+                "aws eks update-kubeconfig --region ap-south-1 --name <your-cluster-name>\n"
+                "kubectl get pods\n"
+                "kubectl create deployment demo-nginx --image=nginx\n"
+                "kubectl get services\n"
+                "# Expected denied examples\n"
+                "kubectl delete node <node-name>\n"
+                "kubectl create clusterrole test-admin --verb=get --resource=pods\n"
+                "kubectl get pods -n kube-system",
             },
         ],
         "deliverables": [
             {
-                "title": "SSO access",
-                "body": "SSO role mapped to Kubernetes RBAC with kubectl access.",
+                "title": "IAM user setup evidence",
+                "body": "demo-eks-user created with AmazonEKSClusterPolicy attached.",
             },
             {
-                "title": "Vault on EKS",
-                "body": "Vault deployed with IRSA and initialized/unsealed.",
+                "title": "aws-auth mapping proof",
+                "body": "ConfigMap includes mapUsers entry with dev-group assignment.",
             },
             {
-                "title": "Dynamic credentials",
-                "body": "Vault issues AWS credentials with TTL and auto-rotation.",
+                "title": "RBAC manifests",
+                "body": "developer-role and developer-binding applied in default namespace.",
+            },
+            {
+                "title": "Access validation logs",
+                "body": "Screenshots/outputs of allowed and denied kubectl actions.",
             },
         ],
         "validation": [
-            "SSO users can access EKS without static IAM keys.",
-            "Vault authenticates to AWS via IRSA (no access keys in config).",
-            "Vault AWS auth accepts the AppIRSA identity.",
-            "Dynamic credentials expire and revoke access after TTL.",
+            "IAM user can authenticate to EKS via aws-auth mapping.",
+            "dev-group can create/update/list/delete pods, services, and deployments in default namespace.",
+            "User cannot delete nodes or modify cluster-level RBAC objects.",
+            "User cannot access workloads in unauthorized namespaces.",
         ],
         "resources": [
             {
-                "title": "Vault Helm chart",
-                "body": "https://helm.releases.hashicorp.com",
+                "title": "EKS aws-auth ConfigMap",
+                "body": "https://docs.aws.amazon.com/eks/latest/userguide/auth-configmap.html",
             },
             {
-                "title": "IRSA docs",
-                "body": "https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html",
+                "title": "Kubernetes RBAC",
+                "body": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
             },
             {
-                "title": "AWS SSO",
-                "body": "https://docs.aws.amazon.com/singlesignon/latest/userguide/what-is.html",
+                "title": "EKS IAM basics",
+                "body": "https://docs.aws.amazon.com/eks/latest/userguide/security-iam.html",
             },
             {
-                "title": "Vault AWS auth",
-                "body": "https://developer.hashicorp.com/vault/docs/auth/aws",
+                "title": "RoleBinding reference",
+                "body": "https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.29/#rolebinding-v1-rbac-authorization-k8s-io",
             },
         ],
         "compare_enabled": False,
         "automation_enabled": False,
         "leaderboard_enabled": False,
         "submission_enabled": False,
-        "form_cta": "Register endpoint",
-        "form_helper": "No submissions required for Lab 5.",
+        "form_cta": "No submission required",
+        "form_helper": "Capture command output for allowed vs denied actions.",
         "sections": [
             {
-                "title": "Target identity flow",
+                "title": "Key concepts",
                 "items": [
                     {
-                        "title": "Humans",
-                        "body": "AWS SSO -> IAM role -> Kubernetes RBAC.",
+                        "title": "Authentication bridge",
+                        "body": "aws-auth maps IAM identities to Kubernetes users/groups.",
                     },
                     {
-                        "title": "Pods",
-                        "body": "IRSA service accounts -> IAM role -> Vault auth.",
+                        "title": "Authorization scope",
+                        "body": "Role and RoleBinding enforce namespace-scoped least privilege.",
                     },
                     {
-                        "title": "Secrets",
-                        "body": "Vault issues short-lived AWS credentials on demand.",
+                        "title": "Negative testing",
+                        "body": "Validate denied cluster-admin and cross-namespace operations.",
                     },
                 ],
             },
             {
-                "title": "Learning objectives",
+                "title": "Lab modules",
                 "items": [
-                    {
-                        "title": "SSO for EKS",
-                        "body": "Use AWS SSO for human authentication to the cluster.",
-                    },
-                    {
-                        "title": "IRSA for pods",
-                        "body": "Bind service accounts to IAM roles with OIDC.",
-                    },
-                    {
-                        "title": "Vault auth",
-                        "body": "Authenticate Vault using AWS IAM without static keys.",
-                    },
-                    {
-                        "title": "Dynamic secrets",
-                        "body": "Issue time-bound AWS credentials and enforce TTL.",
-                    },
+                    {"title": "Module 1", "body": "Create IAM user and attach EKS policy."},
+                    {"title": "Module 2", "body": "Map user in aws-auth ConfigMap."},
+                    {"title": "Module 3", "body": "Create namespace Role for developer actions."},
+                    {"title": "Module 4", "body": "Bind Role to dev-group with RoleBinding."},
+                    {"title": "Module 5", "body": "Configure kubeconfig and validate access controls."},
                 ],
             },
             {
-                "title": "Assumptions",
+                "title": "Assessment prompts",
                 "items": [
                     {
-                        "title": "Existing EKS cluster",
-                        "body": "Cluster exists with OIDC provider enabled.",
+                        "title": "Why aws-auth is required",
+                        "body": "Explain why IAM policy alone does not grant kubectl authorization.",
                     },
                     {
-                        "title": "CLI access",
-                        "body": "awscli, kubectl, and helm installed locally.",
+                        "title": "Role vs ClusterRole",
+                        "body": "Describe when namespace role binding is preferred over cluster-wide access.",
                     },
                     {
-                        "title": "Vault access",
-                        "body": "Operators can exec into the vault pod to initialize/unseal.",
+                        "title": "Security posture check",
+                        "body": "List three privileged commands that should fail for dev-group.",
                     },
                 ],
             },
