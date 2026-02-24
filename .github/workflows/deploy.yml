@@ -16,7 +16,7 @@ jobs:
       - name: Prepare target directory
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 13.232.33.81
+          host: 34.211.232.142
           username: ubuntu
           key: ${{ secrets.EC_PRIVATE_KEY }}
           script: |
@@ -28,7 +28,7 @@ jobs:
       - name: Copy app to EC2
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: 13.232.33.81
+          host: 34.211.232.142
           username: ubuntu
           key: ${{ secrets.EC_PRIVATE_KEY }}
           source: "."
@@ -38,7 +38,7 @@ jobs:
       - name: Build and run container
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: 13.232.33.81
+          host: 34.211.232.142
           username: ubuntu
           key: ${{ secrets.EC_PRIVATE_KEY }}
           script: |
