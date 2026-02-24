@@ -1422,10 +1422,10 @@ LABS = {
     "lab6": {
         "id": "lab6",
         "code": "Lab 6",
-        "title": "GitOps on EKS with Argo CD + Flux",
+        "title": "GitOps on EKS with Argo CD",
         "status": "Active",
         "summary": (
-            "Convert an existing EKS cluster to GitOps using Argo CD and Flux "
+            "Convert an existing EKS cluster to GitOps using Argo CD "
             "without redeploying the cluster or changing application code."
         ),
         "tagline": (
@@ -1434,9 +1434,9 @@ LABS = {
         ),
         "facts": [
             {"title": "Level", "body": "Intermediate"},
-            {"title": "Estimated time", "body": "3 hours"},
+            {"title": "Estimated time", "body": "2.5 hours"},
             {"title": "Primary focus", "body": "GitOps workflows + reconciliation"},
-            {"title": "Stack", "body": "EKS, Argo CD, Flux, Git"},
+            {"title": "Stack", "body": "EKS, Argo CD, Git"},
         ],
         "steps": [
             {
@@ -1558,74 +1558,17 @@ LABS = {
                 "code": "git revert <bad-commit-sha>",
             },
             {
-                "title": "Install Flux",
-                "body": "Install Flux CLI and validate prerequisites.",
-                "output": "Flux pre-check passes.",
+                "title": "Document Argo CD operations",
+                "body": "Capture sync model, UI workflow, drift handling, and promotion strategy.",
+                "output": "Operational notes completed.",
                 "details": (
-                    "Use the official install script and run a preflight check."
+                    "Document your Argo CD observations based on lab results."
                 ),
-                "code": "curl -s https://fluxcd.io/install.sh | sudo bash\n"
-                "flux check --pre",
-            },
-            {
-                "title": "Bootstrap Flux",
-                "body": "Connect Flux to the GitOps repository.",
-                "output": "flux-system resources created.",
-                "details": (
-                    "Bootstrap writes Flux manifests into clusters/dev in the "
-                    "gitops-gratitudeapp repo."
-                ),
-                "code": "flux bootstrap github \\\n"
-                "  --owner=<org> \\\n"
-                "  --repository=gitops-gratitudeapp \\\n"
-                "  --branch=main \\\n"
-                "  --path=clusters/dev\n\n"
-                "flux get kustomizations -A",
-            },
-            {
-                "title": "Flux-managed deployment",
-                "body": "Add a Flux Kustomization for the dev overlay.",
-                "output": "Pods present in gratitude-dev namespace.",
-                "details": (
-                    "Flux should reconcile the Kustomization every minute and prune "
-                    "removed resources."
-                ),
-                "code": "apiVersion: kustomize.toolkit.fluxcd.io/v1\n"
-                "kind: Kustomization\n"
-                "metadata:\n"
-                "  name: gratitudeapp-dev\n"
-                "  namespace: flux-system\n"
-                "spec:\n"
-                "  interval: 1m\n"
-                "  path: ./apps/gratitudeapp/overlays/dev\n"
-                "  prune: true\n"
-                "  sourceRef:\n"
-                "    kind: GitRepository\n"
-                "    name: flux-system\n"
-                "---\n"
-                "kubectl get pods -n gratitude-dev",
-            },
-            {
-                "title": "Drift test (Flux)",
-                "body": "Manually edit a deployment and observe reconciliation.",
-                "output": "Flux returns state to Git.",
-                "details": (
-                    "Introduce drift and verify the Kustomization reports reconciliation."
-                ),
-                "code": "flux get kustomizations",
-            },
-            {
-                "title": "Document Argo CD vs Flux",
-                "body": "Compare sync model, UI, drift handling, and promotion strategy.",
-                "output": "Comparison table completed.",
-                "details": (
-                    "Document your observations for Argo CD and Flux based on lab results."
-                ),
-                "code": "Area | Argo CD | Flux\n"
-                "Sync model | | \n"
-                "UI | | \n"
-                "Drift handling | | \n"
-                "Promotion strategy | | ",
+                "code": "Area | Argo CD notes\n"
+                "Sync model | \n"
+                "UI workflow | \n"
+                "Drift handling | \n"
+                "Promotion strategy | ",
             },
         ],
         "deliverables": [
@@ -1634,28 +1577,19 @@ LABS = {
                 "body": "Screenshot showing Healthy and Synced state.",
             },
             {
-                "title": "Flux output",
-                "body": "Output of `flux get kustomizations`.",
-            },
-            {
                 "title": "Git commit links",
                 "body": "Scaling change, broken change, and rollback commit links.",
             },
         ],
         "validation": [
             "Argo CD auto-syncs and self-heals from drift.",
-            "Flux reconciles Kustomization and prunes removed objects.",
             "Rollbacks happen via Git only; no kubectl apply for workloads.",
-            "Comparison table captures Argo CD vs Flux trade-offs.",
+            "Operational notes capture Argo CD trade-offs and workflow decisions.",
         ],
         "resources": [
             {
                 "title": "Argo CD docs",
                 "body": "https://argo-cd.readthedocs.io/en/stable/",
-            },
-            {
-                "title": "Flux docs",
-                "body": "https://fluxcd.io/docs/",
             },
             {
                 "title": "GitOps on EKS",
@@ -1694,12 +1628,8 @@ LABS = {
                         "body": "Application resources reconciled from Git.",
                     },
                     {
-                        "title": "Flux managed state",
-                        "body": "Kustomizations pull from Git on interval.",
-                    },
-                    {
                         "title": "Automated drift handling",
-                        "body": "Self-heal for both tools validated.",
+                        "body": "Argo CD self-heal validated.",
                     },
                     {
                         "title": "Rollback discipline",
@@ -1712,9 +1642,8 @@ LABS = {
                 "items": [
                     {"title": "0-15 min", "body": "Environment validation."},
                     {"title": "15-70 min", "body": "Argo CD installation and onboarding."},
-                    {"title": "70-110 min", "body": "GitOps operations with Argo CD."},
-                    {"title": "110-150 min", "body": "Flux installation and reconciliation."},
-                    {"title": "150-180 min", "body": "Rollback, drift, and validation."},
+                    {"title": "70-120 min", "body": "GitOps operations with Argo CD."},
+                    {"title": "120-150 min", "body": "Rollback, drift, and validation."},
                 ],
             },
         ],
