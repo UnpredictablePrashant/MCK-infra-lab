@@ -1663,15 +1663,69 @@ LABS = {
         ),
         "facts": [
             {"title": "Level", "body": "Advanced"},
-            {"title": "Estimated time", "body": "2.5-3 hours"},
+            {"title": "Estimated time", "body": "3-4 hours"},
             {"title": "Primary focus", "body": "EKS networking + policy enforcement"},
             {"title": "Stack", "body": "EKS, AWS VPC CNI, Cilium/Calico"},
+        ],
+        "prerequisites": [
+            "Existing EKS cluster with worker nodes in private subnets and kubectl access.",
+            "AWS VPC CNI already running (`aws-node` daemonset healthy).",
+            "Helm 3 and Cilium CLI available on your workstation.",
+            "At least one sample frontend/backend workload with labels for policy tests.",
+        ],
+        "learning_outcomes": [
+            "Diagnose ENI/IP exhaustion and distinguish it from CPU/memory scheduling issues.",
+            "Tune AWS VPC CNI warm IP behavior and validate post-change effects.",
+            "Install Cilium in policy enforcement mode without replacing AWS VPC CNI IPAM.",
+            "Prove NetworkPolicy enforcement using deny/allow tests and flow visibility.",
+        ],
+        "scoring_rubric": [
+            {"title": "VPC CNI baseline and IP diagnostics", "body": "Health, logs, and IP evidence are complete.", "points": "25 pts"},
+            {"title": "IP tuning and validation", "body": "Warm/prefix strategy and outcomes are measurable.", "points": "20 pts"},
+            {"title": "Cilium installation quality", "body": "Install mode, config, and health checks are correct.", "points": "25 pts"},
+            {"title": "NetworkPolicy enforcement proof", "body": "Deny/allow behavior and drop evidence are validated.", "points": "20 pts"},
+            {"title": "Troubleshooting narrative", "body": "Root cause and remediation path are clearly documented.", "points": "10 pts"},
+        ],
+        "phases": [
+            {
+                "title": "Phase 1: Baseline and IP pressure tests (60-80 min)",
+                "body": "Confirm CNI behavior, reproduce IP pressure, and capture evidence.",
+                "checkpoint": "Pending pods and relevant aws-node evidence are captured.",
+            },
+            {
+                "title": "Phase 2: IPAM tuning and stabilization (30-40 min)",
+                "body": "Tune warm targets/prefix delegation and verify scheduling improvements.",
+                "checkpoint": "Post-tuning logs and scheduling behavior are documented.",
+            },
+            {
+                "title": "Phase 3: Cilium policy enablement (45-60 min)",
+                "body": "Install Cilium policy mode, verify health, and ensure CRDs are available.",
+                "checkpoint": "Cilium agents healthy and policy APIs ready.",
+            },
+            {
+                "title": "Phase 4: Enforcement validation and triage drill (45-60 min)",
+                "body": "Apply deny/allow policies, observe drops, and run troubleshooting checklist.",
+                "checkpoint": "Traffic matrix and drop evidence confirm policy behavior.",
+            },
         ],
         "steps": [
             {
                 "title": "Baseline: inspect AWS VPC CNI",
                 "body": "Confirm aws-node is running and review recent logs.",
                 "output": "CNI daemonset healthy with recent log activity.",
+                "duration": "12 min",
+                "priority": "High",
+                "points": "7",
+                "checkpoints": [
+                    "All aws-node pods are Ready on all worker nodes.",
+                    "No repeated fatal IPAM or ENI attach errors in recent logs.",
+                ],
+                "acceptance": [
+                    "Baseline snapshot of daemonset status and recent logs captured.",
+                ],
+                "pitfalls": [
+                    "Checking one pod only and missing node-specific failures.",
+                ],
                 "details": (
                     "Concept: AWS VPC CNI allocates pod IPs from ENIs on each node. "
                     "Why: if aws-node is unhealthy, pods may not get IPs. "
@@ -1690,6 +1744,19 @@ LABS = {
                 "title": "Verify pod and node IPs",
                 "body": "Confirm pods have VPC CIDR IPs and nodes show multiple ENIs.",
                 "output": "Pod IPs match the VPC CIDR and nodes have VPC addresses.",
+                "duration": "10 min",
+                "priority": "High",
+                "points": "5",
+                "checkpoints": [
+                    "Sample pods map to expected subnet CIDR ranges.",
+                    "Node addresses and pod ranges are internally consistent.",
+                ],
+                "acceptance": [
+                    "Evidence shows pods are VPC-routable addresses.",
+                ],
+                "pitfalls": [
+                    "Confusing service CIDR addresses with pod CIDR/VPC addresses.",
+                ],
                 "details": (
                     "Concept: pod IPs are first-class VPC addresses. "
                     "Why: VPC-routable IPs enable native routing but introduce IP limits. "
@@ -1706,6 +1773,15 @@ LABS = {
                 "title": "Visualize IP allocation per node",
                 "body": "Deploy a small workload and observe placement.",
                 "output": "Pods spread across nodes with routable IPs.",
+                "duration": "12 min",
+                "priority": "Medium",
+                "points": "5",
+                "checkpoints": [
+                    "Pod-to-node mapping captured for a sample workload.",
+                ],
+                "acceptance": [
+                    "You can explain how ENI/IP availability influences placement.",
+                ],
                 "details": (
                     "Concept: each node attaches ENIs and allocates secondary IPs to pods. "
                     "Why: IP distribution affects scheduling and density. "
@@ -1723,6 +1799,19 @@ LABS = {
                 "title": "Simulate IP exhaustion",
                 "body": "Over-schedule small pods to trigger IP shortage.",
                 "output": "Pods stuck Pending and events show IP assignment issues.",
+                "duration": "15 min",
+                "priority": "High",
+                "points": "8",
+                "checkpoints": [
+                    "Some pods enter Pending despite available CPU/memory.",
+                    "Events indicate IP or CNI allocation constraints.",
+                ],
+                "acceptance": [
+                    "Controlled reproduction of IP exhaustion is documented.",
+                ],
+                "pitfalls": [
+                    "Stopping at Pending state without collecting event evidence.",
+                ],
                 "details": (
                     "Concept: instance types have ENI/IP limits that cap pod density. "
                     "Why: pods can remain Pending even with free CPU/RAM. "
@@ -1741,6 +1830,15 @@ LABS = {
                 "title": "Inspect aws-node errors",
                 "body": "Review CNI logs for IP allocation failures.",
                 "output": "Log entries show IP exhaustion or ENI limits.",
+                "duration": "10 min",
+                "priority": "High",
+                "points": "6",
+                "checkpoints": [
+                    "Relevant aws-node error lines collected and annotated.",
+                ],
+                "acceptance": [
+                    "Root-cause evidence references exact log messages.",
+                ],
                 "details": (
                     "Concept: aws-node logs reflect IPAM behavior and failures. "
                     "Why: events alone do not show the precise IPAM error. "
@@ -1757,6 +1855,19 @@ LABS = {
                 "title": "Tune warm IP targets",
                 "body": "Increase warm IP pool to reduce allocation latency.",
                 "output": "aws-node restarts and pre-allocates more IPs.",
+                "duration": "12 min",
+                "priority": "High",
+                "points": "7",
+                "checkpoints": [
+                    "Environment variables are updated on daemonset spec.",
+                    "aws-node rollout completes successfully.",
+                ],
+                "acceptance": [
+                    "Warm pool settings are applied cluster-wide.",
+                ],
+                "pitfalls": [
+                    "Changing env vars without validating rollout success.",
+                ],
                 "details": (
                     "Concept: warm IPs are pre-allocated to reduce pod startup time. "
                     "Why: on-demand IP allocation can delay scheduling. "
@@ -1775,6 +1886,16 @@ LABS = {
                 "title": "Validate post-tuning behavior",
                 "body": "Check CNI logs and verify scheduling improves.",
                 "output": "Logs show warm pool behavior and fewer Pending pods.",
+                "duration": "10 min",
+                "priority": "High",
+                "points": "6",
+                "checkpoints": [
+                    "Post-tuning logs show updated warm target behavior.",
+                    "Pending pod count decreases relative to baseline run.",
+                ],
+                "acceptance": [
+                    "Before/after evidence demonstrates improved behavior.",
+                ],
                 "details": (
                     "Concept: warm IP pool status is visible in CNI logs. "
                     "Why: tuning is ineffective if env vars are not applied. "
@@ -1792,6 +1913,15 @@ LABS = {
                 "title": "Optional: enable prefix delegation",
                 "body": "Increase pod density per node using prefix delegation.",
                 "output": "Nodes support more pod IPs per ENI.",
+                "duration": "10 min",
+                "priority": "Medium",
+                "points": "4",
+                "checkpoints": [
+                    "Prefix delegation env var present in aws-node config.",
+                ],
+                "acceptance": [
+                    "Team can explain when prefix delegation should be used.",
+                ],
                 "details": (
                     "Concept: prefix delegation assigns IP prefixes instead of singles. "
                     "Why: higher pod density per ENI reduces IP exhaustion risk. "
@@ -1806,25 +1936,132 @@ LABS = {
                 "kubectl -n kube-system rollout restart ds/aws-node",
             },
             {
-                "title": "Install policy engine (Cilium or Calico)",
-                "body": "Add NetworkPolicy support in chaining or policy-only mode.",
-                "output": "Policy engine running alongside AWS VPC CNI.",
+                "title": "Cilium preflight: tooling and cluster readiness",
+                "body": "Validate CLI, kernel capabilities, and AWS VPC CNI compatibility before install.",
+                "output": "Preflight checks pass with no blocking issues.",
+                "duration": "12 min",
+                "priority": "High",
+                "points": "8",
+                "checkpoints": [
+                    "Cilium CLI and Helm are available locally.",
+                    "Cluster version and kube-proxy mode are captured.",
+                    "AWS VPC CNI remains the IPAM provider.",
+                ],
+                "acceptance": [
+                    "Preflight output attached with any warnings triaged.",
+                ],
+                "pitfalls": [
+                    "Installing blindly without checking version compatibility.",
+                    "Assuming Cilium will manage pod IPs in this lab.",
+                ],
                 "details": (
-                    "Concept: AWS VPC CNI provides IPs but not policy enforcement. "
-                    "Why: NetworkPolicy objects are ignored without a policy engine. "
-                    "Approach: install Cilium (chaining) or Calico (policy-only)."
+                    "Concept: Cilium in this lab is for policy enforcement and visibility, "
+                    "not replacing AWS VPC CNI IP allocation. "
+                    "Why: wrong install mode can break networking. "
+                    "Approach: run preflight and capture baseline environment details."
                 ),
                 "rationale": (
-                    "Real-world problem: teams assume policies are enforced but they are not. "
-                    "Why this step: adds the missing enforcement plane. "
-                    "How it helps: enables least-privilege network segmentation."
+                    "Real-world problem: many failed Cilium rollouts are caused by skipped "
+                    "readiness checks. Why this step: catches incompatibilities early. "
+                    "How it helps: reduces risk before cluster-wide daemonset changes."
                 ),
-                "code": "cilium status\nkubectl get pods -n kube-system | grep -E \"cilium|calico\"",
+                "code": "cilium version\n"
+                "cilium status --wait=false || true\n"
+                "kubectl version --short\n"
+                "kubectl -n kube-system get ds aws-node kube-proxy\n"
+                "kubectl -n kube-system get cm aws-node -o yaml | head -n 40",
+            },
+            {
+                "title": "Install Cilium in policy enforcement mode",
+                "body": "Deploy Cilium with AWS CNI chaining/policy mode so VPC CNI still handles IPAM.",
+                "output": "Cilium daemonset and operator pods running in kube-system.",
+                "duration": "20 min",
+                "priority": "High",
+                "points": "12",
+                "checkpoints": [
+                    "Install command includes policy/chaining settings.",
+                    "cilium and cilium-operator pods are Ready on all nodes.",
+                ],
+                "acceptance": [
+                    "No cluster-wide pod networking regression after install.",
+                ],
+                "pitfalls": [
+                    "Using defaults that conflict with AWS VPC CNI mode.",
+                    "Skipping `--wait` and continuing before agents become healthy.",
+                ],
+                "details": (
+                    "Concept: Cilium can enforce NetworkPolicy while AWS VPC CNI remains "
+                    "the primary CNI for IP assignment. "
+                    "Why: this preserves EKS VPC networking semantics while adding policy enforcement. "
+                    "Approach: install using a values profile aligned to AWS chaining/policy-only behavior."
+                ),
+                "rationale": (
+                    "Real-world problem: teams need policy enforcement without replacing "
+                    "existing AWS networking architecture. Why this step: introduces Cilium "
+                    "incrementally and safely. How it helps: enables segmentation with lower migration risk."
+                ),
+                "code": "helm repo add cilium https://helm.cilium.io\n"
+                "helm repo update\n"
+                "cilium install --version 1.15.6 \\\n"
+                "  --set cni.chainingMode=aws-cni \\\n"
+                "  --set routingMode=native \\\n"
+                "  --set kubeProxyReplacement=disabled \\\n"
+                "  --set policyEnforcementMode=default \\\n"
+                "  --set operator.replicas=1\n"
+                "kubectl -n kube-system rollout status ds/cilium --timeout=180s\n"
+                "kubectl -n kube-system get pods -l k8s-app=cilium",
+            },
+            {
+                "title": "Verify Cilium health and policy readiness",
+                "body": "Confirm Cilium status, CRDs, and policy APIs before applying deny/allow rules.",
+                "output": "Cilium healthy with policy resources available.",
+                "duration": "12 min",
+                "priority": "High",
+                "points": "10",
+                "checkpoints": [
+                    "`cilium status --wait` returns OK.",
+                    "Cilium CRDs and NetworkPolicy API resources are present.",
+                    "At least one `cilium connectivity test` scenario passes.",
+                ],
+                "acceptance": [
+                    "Policy engine readiness evidence is captured before enforcement tests.",
+                ],
+                "pitfalls": [
+                    "Applying policies before agent health is green.",
+                    "Relying only on pod Ready state without policy API checks.",
+                ],
+                "details": (
+                    "Concept: Ready pods do not always mean policy enforcement is fully operational. "
+                    "Why: CRD/API/controller lag can cause confusing early test failures. "
+                    "Approach: verify status, CRDs, and basic connectivity tests in sequence."
+                ),
+                "rationale": (
+                    "Real-world problem: teams incorrectly conclude policies are broken when "
+                    "the engine was not fully initialized. Why this step: ensures valid test conditions. "
+                    "How it helps: avoids false negatives during enforcement validation."
+                ),
+                "code": "cilium status --wait\n"
+                "kubectl get crd | grep cilium\n"
+                "kubectl api-resources | grep -E \"NetworkPolicy|Cilium\"\n"
+                "cilium connectivity test --test \"pod-to-pod\" --single-node",
             },
             {
                 "title": "Apply deny-all NetworkPolicy",
                 "body": "Block all ingress and egress in the default namespace.",
                 "output": "Traffic stops between pods unless explicitly allowed.",
+                "duration": "12 min",
+                "priority": "High",
+                "points": "8",
+                "checkpoints": [
+                    "Deny-all policy applied in the target namespace.",
+                    "At least one prior-success flow is now blocked.",
+                ],
+                "acceptance": [
+                    "Zero-trust baseline established with reproducible test evidence.",
+                ],
+                "pitfalls": [
+                    "Applying to wrong namespace and getting false pass results.",
+                ],
                 "details": (
                     "Concept: default deny establishes a zero-trust baseline. "
                     "Why: without it, implicit allow makes policy gaps invisible. "
@@ -1850,6 +2087,16 @@ LABS = {
                 "title": "Allow frontend to backend only",
                 "body": "Create a targeted allow policy for app traffic.",
                 "output": "Frontend can reach backend; other traffic is blocked.",
+                "duration": "15 min",
+                "priority": "High",
+                "points": "8",
+                "checkpoints": [
+                    "Frontend -> backend path succeeds after allow policy.",
+                    "Non-allowed peer traffic remains blocked.",
+                ],
+                "acceptance": [
+                    "Traffic matrix clearly shows allowed and denied paths.",
+                ],
                 "details": (
                     "Concept: allow lists restrict traffic to explicit sources. "
                     "Why: least-privilege reduces lateral movement risk. "
@@ -1881,6 +2128,18 @@ LABS = {
                 "title": "Observe drops (Cilium)",
                 "body": "Monitor denied traffic for evidence of enforcement.",
                 "output": "Drop events visible in the Cilium monitor.",
+                "duration": "10 min",
+                "priority": "Medium",
+                "points": "5",
+                "checkpoints": [
+                    "Denied flow entries collected with source/destination identity.",
+                ],
+                "acceptance": [
+                    "At least one drop event mapped to an expected denied flow.",
+                ],
+                "pitfalls": [
+                    "Capturing drops without linking them to policy intent.",
+                ],
                 "details": (
                     "Concept: flow visibility confirms policy enforcement. "
                     "Why: logs prove drops when connectivity tests fail. "
@@ -1897,6 +2156,16 @@ LABS = {
                 "title": "Troubleshooting checklist",
                 "body": "Debug DNS, service routing, and IP allocation failures.",
                 "output": "Root cause identified for common networking failures.",
+                "duration": "20 min",
+                "priority": "High",
+                "points": "9",
+                "checkpoints": [
+                    "Checklist run captures DNS, service, and CNI evidence.",
+                    "One failure scenario includes root cause and fix.",
+                ],
+                "acceptance": [
+                    "Runbook-style notes are complete and reproducible.",
+                ],
                 "details": (
                     "Concept: networking issues often span DNS, services, and IPAM. "
                     "Why: symptoms can look similar without structured checks. "
@@ -1927,6 +2196,10 @@ LABS = {
                 "body": "Proof of deny-all and allow-only rules working.",
             },
             {
+                "title": "Cilium installation evidence",
+                "body": "Install command, status output, and daemonset health proof.",
+            },
+            {
                 "title": "Troubleshooting notes",
                 "body": "Short write-up on root cause and fix for one failure.",
             },
@@ -1935,6 +2208,8 @@ LABS = {
             "Pods show VPC-routable IPs and aws-node is healthy.",
             "IP exhaustion reproduces Pending pods with relevant events/logs.",
             "Warm IP tuning or prefix delegation improves scheduling behavior.",
+            "Cilium is installed in a mode compatible with AWS VPC CNI.",
+            "Cilium health and policy readiness checks pass before policy tests.",
             "NetworkPolicy enforcement verified with a policy engine.",
             "Troubleshooting commands identify DNS/service/IP issues.",
         ],
@@ -1950,6 +2225,10 @@ LABS = {
             {
                 "title": "Cilium docs",
                 "body": "https://docs.cilium.io/en/stable/",
+            },
+            {
+                "title": "Cilium installation on EKS",
+                "body": "https://docs.cilium.io/en/stable/installation/k8s-install-helm/",
             },
             {
                 "title": "Calico policy-only",
@@ -1987,10 +2266,12 @@ LABS = {
                     {"title": "Module 2", "body": "Visualize IP allocation per node."},
                     {"title": "Module 3", "body": "Simulate IP exhaustion and events."},
                     {"title": "Module 4", "body": "Tune warm IP targets and restart CNI."},
-                    {"title": "Module 5", "body": "Install Cilium or Calico for policy."},
-                    {"title": "Module 6", "body": "Apply deny-all and allow rules."},
-                    {"title": "Module 7", "body": "Observe drops with Cilium."},
-                    {"title": "Module 8", "body": "Troubleshooting checklist round."},
+                    {"title": "Module 5", "body": "Run Cilium preflight and compatibility checks."},
+                    {"title": "Module 6", "body": "Install Cilium in AWS CNI chaining/policy mode."},
+                    {"title": "Module 7", "body": "Verify Cilium health, CRDs, and connectivity tests."},
+                    {"title": "Module 8", "body": "Apply deny-all and targeted allow policies."},
+                    {"title": "Module 9", "body": "Observe policy drops and validate enforcement traces."},
+                    {"title": "Module 10", "body": "Run troubleshooting checklist and root-cause write-up."},
                 ],
             },
             {
@@ -2007,6 +2288,10 @@ LABS = {
                     {
                         "title": "Design for banking",
                         "body": "Separate pod subnets, SG for pods, and policy engine.",
+                    },
+                    {
+                        "title": "Cilium install strategy",
+                        "body": "Explain why policy mode/chaining was chosen over full CNI replacement.",
                     },
                 ],
             },
