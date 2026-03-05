@@ -297,6 +297,83 @@ body {
   overflow-wrap: anywhere;
 }
 
+.step-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.step-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--sea-dark);
+  background: rgba(15, 95, 95, 0.12);
+  border: 1px solid rgba(15, 95, 95, 0.2);
+}
+
+.step-detail-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.step-detail-box {
+  border-radius: 12px;
+  border: 1px solid rgba(15, 28, 27, 0.08);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 10px 12px;
+}
+
+.step-detail-box.warning {
+  background: rgba(228, 163, 83, 0.14);
+  border-color: rgba(200, 132, 47, 0.35);
+}
+
+.step-detail-title {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sea-dark);
+  margin-bottom: 6px;
+}
+
+.step-inline-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.rubric-list {
+  display: grid;
+  gap: 10px;
+}
+
+.rubric-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(15, 28, 27, 0.08);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.rubric-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
 .detail-trigger {
   border-radius: 12px;
   padding: 8px 14px;
@@ -332,6 +409,21 @@ body {
   background: rgba(15, 95, 95, 0.12);
   border-radius: 999px;
   padding: 4px 8px;
+}
+
+.checklist.compact {
+  gap: 8px;
+}
+
+.checklist.compact li {
+  font-size: 0.88rem;
+  padding: 8px 10px 8px 36px;
+}
+
+.checklist.compact li::before {
+  left: 10px;
+  font-size: 0.68rem;
+  padding: 3px 7px;
 }
 
 .modal {

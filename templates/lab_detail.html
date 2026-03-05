@@ -48,6 +48,75 @@
         </div>
       </section>
 
+      {% if lab.prerequisites or lab.learning_outcomes or lab.scoring_rubric %}
+      <section class="panel">
+        <div class="results-header">
+          <h2>Execution blueprint</h2>
+          <span class="muted">Use this as your implementation and grading guide.</span>
+        </div>
+        <div class="section-grid">
+          {% if lab.prerequisites %}
+          <div class="section-card">
+            <h3>Prerequisites</h3>
+            <ul class="checklist compact">
+              {% for item in lab.prerequisites %}
+              <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          {% if lab.learning_outcomes %}
+          <div class="section-card">
+            <h3>Learning outcomes</h3>
+            <ul class="checklist compact">
+              {% for item in lab.learning_outcomes %}
+              <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          {% if lab.scoring_rubric %}
+          <div class="section-card">
+            <h3>Scoring rubric</h3>
+            <div class="rubric-list">
+              {% for item in lab.scoring_rubric %}
+              <div class="rubric-item">
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <span class="muted">{{ item.body }}</span>
+                </div>
+                <span class="step-chip">{{ item.points }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if lab.phases %}
+      <section class="panel">
+        <div class="results-header">
+          <h2>Milestones</h2>
+          <span class="muted">Suggested sequence and checkpoints.</span>
+        </div>
+        <div class="section-grid">
+          {% for phase in lab.phases %}
+          <div class="section-card">
+            <h3>{{ phase.title }}</h3>
+            <p>{{ phase.body }}</p>
+            {% if phase.checkpoint %}
+            <span class="step-output">{{ phase.checkpoint }}</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
       <section class="panel steps-panel">
         <div class="results-header">
           <h2>Required steps</h2>
@@ -59,6 +128,54 @@
             <div class="steps-body">
               <h3>{{ step.title }}</h3>
               <p>{{ step.body }}</p>
+              {% if step.duration or step.priority or step.points %}
+              <div class="step-chips">
+                {% if step.duration %}
+                <span class="step-chip">Duration: {{ step.duration }}</span>
+                {% endif %}
+                {% if step.priority %}
+                <span class="step-chip">Priority: {{ step.priority }}</span>
+                {% endif %}
+                {% if step.points %}
+                <span class="step-chip">Points: {{ step.points }}</span>
+                {% endif %}
+              </div>
+              {% endif %}
+
+              {% if step.checkpoints or step.pitfalls or step.acceptance %}
+              <div class="step-detail-grid">
+                {% if step.checkpoints %}
+                <div class="step-detail-box">
+                  <span class="step-detail-title">Checkpoints</span>
+                  <ul class="step-inline-list">
+                    {% for item in step.checkpoints %}
+                    <li>{{ item }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+                {% if step.acceptance %}
+                <div class="step-detail-box">
+                  <span class="step-detail-title">Acceptance</span>
+                  <ul class="step-inline-list">
+                    {% for item in step.acceptance %}
+                    <li>{{ item }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+                {% if step.pitfalls %}
+                <div class="step-detail-box warning">
+                  <span class="step-detail-title">Pitfalls</span>
+                  <ul class="step-inline-list">
+                    {% for item in step.pitfalls %}
+                    <li>{{ item }}</li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+              </div>
+              {% endif %}
             </div>
             {% if step.output %}
             <span class="step-output">{{ step.output }}</span>
@@ -67,6 +184,7 @@
             {% set modal_payload = {
               "title": step.title,
               "details": step.details | default(""),
+              "rationale": step.rationale | default(""),
               "code": step.code | default(""),
               "downloads": step.downloads | default([])
             } %}
@@ -263,6 +381,10 @@
         </div>
         <div class="modal-body">
           <p id="modal-details"></p>
+          <div id="modal-rationale-block" class="hidden">
+            <div class="modal-subtitle">Why this matters</div>
+            <p id="modal-rationale"></p>
+          </div>
           <div id="modal-code-block" class="modal-code hidden">
             <div class="modal-subtitle">Code</div>
             <pre><code id="modal-code"></code></pre>

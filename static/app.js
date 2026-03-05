@@ -19,6 +19,8 @@ const activeLabId = labContext ? labContext.dataset.labId : null;
 const modal = document.getElementById("detail-modal");
 const modalTitle = document.getElementById("modal-title");
 const modalDetails = document.getElementById("modal-details");
+const modalRationaleBlock = document.getElementById("modal-rationale-block");
+const modalRationale = document.getElementById("modal-rationale");
 const modalCodeBlock = document.getElementById("modal-code-block");
 const modalCode = document.getElementById("modal-code");
 const modalDownloads = document.getElementById("modal-downloads");
@@ -360,6 +362,14 @@ function openModal(payload) {
   }
   modalTitle.textContent = payload.title || "Details";
   modalDetails.textContent = payload.details || "No additional details available.";
+
+  if (payload.rationale && modalRationale && modalRationaleBlock) {
+    modalRationale.textContent = payload.rationale;
+    modalRationaleBlock.classList.remove("hidden");
+  } else if (modalRationale && modalRationaleBlock) {
+    modalRationale.textContent = "";
+    modalRationaleBlock.classList.add("hidden");
+  }
 
   if (payload.code) {
     modalCode.textContent = payload.code;

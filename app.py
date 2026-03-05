@@ -2012,6 +2012,610 @@ LABS = {
             },
         ],
     },
+    "lab8": {
+        "id": "lab8",
+        "code": "Lab 8",
+        "title": "Prometheus & Grafana Advanced Dashboards: SLO, Capacity, and Incident Views",
+        "status": "Active",
+        "summary": (
+            "Build production-grade Grafana dashboards from Prometheus metrics with "
+            "recording rules, SLO burn-rate visualizations, and actionable alert panels."
+        ),
+        "tagline": (
+            "Move beyond basic graphs: design opinionated dashboards for latency, "
+            "errors, saturation, and capacity planning with strong query discipline."
+        ),
+        "facts": [
+            {"title": "Level", "body": "Advanced"},
+            {"title": "Estimated time", "body": "3.5-4.5 hours"},
+            {"title": "Primary focus", "body": "PromQL + dashboard architecture"},
+            {"title": "Stack", "body": "Prometheus, Grafana, kube-prometheus-stack"},
+        ],
+        "prerequisites": [
+            "Working EKS cluster with kube-prometheus-stack installed in namespace monitoring.",
+            "Access to Grafana editor role and Prometheus UI.",
+            "A load tool available (hey or k6) and a reachable GratitudeApp endpoint.",
+            "Basic knowledge of histogram metrics, rate/increase, and label filtering.",
+        ],
+        "learning_outcomes": [
+            "Design audience-specific dashboards instead of one overloaded dashboard.",
+            "Use recording rules to reduce expensive repeated PromQL in Grafana panels.",
+            "Implement SLO burn-rate visualizations and map them to alert severity.",
+            "Version-control dashboards as code with reviewable and reproducible changes.",
+        ],
+        "scoring_rubric": [
+            {"title": "Observability contract quality", "body": "SLIs/SLOs are measurable and tied to user journeys.", "points": "15 pts"},
+            {"title": "PromQL and recording rules", "body": "Queries are efficient, readable, and reusable.", "points": "20 pts"},
+            {"title": "Dashboard architecture", "body": "Exec/Service/Capacity/Incident views are clear and actionable.", "points": "25 pts"},
+            {"title": "SLO burn-rate and alert integration", "body": "Burn windows and runbook wiring are implemented correctly.", "points": "20 pts"},
+            {"title": "Validation and dashboard-as-code", "body": "Load tests, screenshots, JSON exports, and Git history are complete.", "points": "20 pts"},
+        ],
+        "phases": [
+            {
+                "title": "Phase 1: Instrumentation and query foundation (45-60 min)",
+                "body": "Lock down labels, metric quality, and recording rules before designing panels.",
+                "checkpoint": "Prometheus rules are loaded and query latency is acceptable.",
+            },
+            {
+                "title": "Phase 2: Dashboard architecture and implementation (90-120 min)",
+                "body": "Build four dashboards with reusable variables, thresholds, and panel narratives.",
+                "checkpoint": "All core panels render in <2 seconds for a 6h range.",
+            },
+            {
+                "title": "Phase 3: Incident and load validation (45-60 min)",
+                "body": "Run traffic scenarios and confirm dashboards reflect system behavior accurately.",
+                "checkpoint": "Trend changes and alert states are visible across views.",
+            },
+            {
+                "title": "Phase 4: Operationalization (30-40 min)",
+                "body": "Export dashboards, store in Git, and document tradeoffs and known limits.",
+                "checkpoint": "Dashboards can be reprovisioned from code.",
+            },
+        ],
+        "steps": [
+            {
+                "title": "Define observability contract",
+                "body": "Document service SLIs, SLO targets, and user journeys.",
+                "output": "A written contract for availability, latency, traffic, and errors.",
+                "duration": "20 min",
+                "priority": "High",
+                "points": "8",
+                "checkpoints": [
+                    "At least one business journey is mapped to each SLI.",
+                    "Every SLI has a numeric target and measurement window.",
+                ],
+                "acceptance": [
+                    "Contract includes owner, target, and reporting interval.",
+                ],
+                "pitfalls": [
+                    "Using infrastructure metrics only without user-facing SLIs.",
+                    "Defining SLOs without error budget interpretation.",
+                ],
+                "details": (
+                    "Concept: dashboards should encode SLO intent, not random metrics. "
+                    "Why: without an explicit contract, panels become noisy and unactionable. "
+                    "Approach: map one business journey to technical SLIs."
+                ),
+                "rationale": (
+                    "Real-world problem: many teams collect metrics but cannot answer "
+                    "incident questions quickly. Why this step: aligns panels to decisions. "
+                    "How it helps: dashboard consumers can triage in minutes."
+                ),
+                "code": "Category | SLI | Target\n"
+                "Availability | success ratio | 99.9%\n"
+                "Latency | p95 request duration | <300ms\n"
+                "Errors | 5xx ratio | <0.1%\n"
+                "Saturation | CPU throttling/memory pressure | trend only",
+            },
+            {
+                "title": "Harden metric labeling",
+                "body": "Standardize labels and remove high-cardinality pitfalls.",
+                "output": "Stable labels for job, instance, namespace, pod, route, status.",
+                "duration": "20 min",
+                "priority": "High",
+                "points": "8",
+                "checkpoints": [
+                    "Label schema for service and route is documented.",
+                    "Unbounded labels are removed or normalized.",
+                ],
+                "acceptance": [
+                    "No query relies on raw path/user/session labels.",
+                ],
+                "pitfalls": [
+                    "Adding HTTP path with IDs as direct labels.",
+                ],
+                "details": (
+                    "Concept: good labels are the foundation of reliable dashboards. "
+                    "Why: high-cardinality labels cause slow queries and noisy panels. "
+                    "Approach: avoid unbounded labels like user_id/session_id/path_raw."
+                ),
+                "rationale": (
+                    "Real-world problem: Prometheus memory spikes from cardinality explosions. "
+                    "Why this step: prevents cost and performance regressions. "
+                    "How it helps: keeps dashboards fast during incidents."
+                ),
+                "code": "sum by (job, namespace, pod, status) (\n"
+                "  rate(http_requests_total{namespace=\"gratitude\"}[5m])\n"
+                ")",
+            },
+            {
+                "title": "Create recording rules for expensive queries",
+                "body": "Precompute request rate, error ratio, and latency quantiles.",
+                "output": "Rule groups loaded and visible in Prometheus.",
+                "duration": "25 min",
+                "priority": "High",
+                "points": "12",
+                "checkpoints": [
+                    "Rules appear under `Status -> Rules` in Prometheus.",
+                    "Panel queries reference recorded series where applicable.",
+                ],
+                "acceptance": [
+                    "Rule interval aligns with alert/dash refresh windows.",
+                ],
+                "pitfalls": [
+                    "Computing histogram quantile from already aggregated percentiles.",
+                    "Over-recording one-off metrics that do not need caching.",
+                ],
+                "details": (
+                    "Concept: recording rules reduce repeated query cost in Grafana. "
+                    "Why: dashboards with many raw aggregations become slow at scale. "
+                    "Approach: precompute shared expressions used by multiple panels."
+                ),
+                "rationale": (
+                    "Real-world problem: overloaded Prometheus under heavy dashboard usage. "
+                    "Why this step: centralizes expensive calculations once per interval. "
+                    "How it helps: improves panel load times and reliability."
+                ),
+                "code": "groups:\n"
+                "- name: gratitudeapp.rules\n"
+                "  interval: 30s\n"
+                "  rules:\n"
+                "  - record: service:http_rps:rate5m\n"
+                "    expr: sum(rate(http_requests_total{namespace=\"gratitude\"}[5m])) by (service)\n"
+                "  - record: service:http_5xx_ratio:rate5m\n"
+                "    expr: |\n"
+                "      sum(rate(http_requests_total{namespace=\"gratitude\",status=~\"5..\"}[5m])) by (service)\n"
+                "      /\n"
+                "      sum(rate(http_requests_total{namespace=\"gratitude\"}[5m])) by (service)\n"
+                "  - record: service:http_p95_latency_seconds:5m\n"
+                "    expr: |\n"
+                "      histogram_quantile(0.95,\n"
+                "        sum(rate(http_request_duration_seconds_bucket{namespace=\"gratitude\"}[5m])) by (le, service)\n"
+                "      )",
+            },
+            {
+                "title": "Design dashboard taxonomy",
+                "body": "Create 4 dashboards: Executive, Service, Capacity, Incident.",
+                "output": "Folders and naming conventions agreed.",
+                "duration": "15 min",
+                "priority": "High",
+                "points": "7",
+                "checkpoints": [
+                    "Each dashboard has a primary audience and decision purpose.",
+                    "Panel naming follows a consistent verb + metric format.",
+                ],
+                "acceptance": [
+                    "No dashboard duplicates the same panel with only cosmetic changes.",
+                ],
+                "pitfalls": [
+                    "Mixing executive and on-call detail in the same board.",
+                ],
+                "details": (
+                    "Concept: different audiences need different panel density and context. "
+                    "Why: one giant dashboard fails both executives and operators. "
+                    "Approach: split by decision context and time horizon."
+                ),
+                "rationale": (
+                    "Real-world problem: teams overload one dashboard and lose signal. "
+                    "Why this step: enforces clarity per consumer type. "
+                    "How it helps: faster decision-making under pressure."
+                ),
+                "code": "Folder: GratitudeApp\n"
+                "1) Exec-SLO-Overview\n"
+                "2) Service-Deep-Dive\n"
+                "3) Capacity-and-Cost\n"
+                "4) Incident-War-Room",
+            },
+            {
+                "title": "Build reusable Grafana variables",
+                "body": "Add datasource, environment, namespace, service, and pod variables.",
+                "output": "Variables filter all relevant panels consistently.",
+                "duration": "20 min",
+                "priority": "Medium",
+                "points": "7",
+                "checkpoints": [
+                    "Default values work with no manual selection.",
+                    "Multi-select and `All` do not break query performance.",
+                ],
+                "acceptance": [
+                    "Variables are used across all four dashboards consistently.",
+                ],
+                "pitfalls": [
+                    "Chained variables causing empty values in some environments.",
+                ],
+                "details": (
+                    "Concept: variables make one dashboard reusable across environments. "
+                    "Why: duplicated dashboards drift and increase maintenance. "
+                    "Approach: use query variables with sensible defaults and multi-select."
+                ),
+                "rationale": (
+                    "Real-world problem: stale copies of dashboards for dev/stage/prod. "
+                    "Why this step: one dashboard, many environments. "
+                    "How it helps: keeps operational views consistent."
+                ),
+                "code": "label_values(kube_pod_info, namespace)\n"
+                "label_values(http_requests_total{namespace=\"$namespace\"}, service)\n"
+                "label_values(kube_pod_info{namespace=\"$namespace\"}, pod)",
+            },
+            {
+                "title": "Implement RED and USE views",
+                "body": "Create panels for Rate-Errors-Duration and Utilization-Saturation-Errors.",
+                "output": "Service and node-level golden signals visible.",
+                "duration": "35 min",
+                "priority": "High",
+                "points": "10",
+                "checkpoints": [
+                    "RED panels include requests/sec, error ratio, and p95 latency.",
+                    "USE panels include CPU utilization, memory pressure, and throttling.",
+                ],
+                "acceptance": [
+                    "At least one panel correlates service degradation with resource stress.",
+                ],
+                "pitfalls": [
+                    "Using CPU usage alone without throttling or saturation context.",
+                ],
+                "details": (
+                    "Concept: RED + USE gives balanced app and infrastructure signals. "
+                    "Why: app-only dashboards miss resource saturation root causes. "
+                    "Approach: pair service panels with node and pod resource context."
+                ),
+                "rationale": (
+                    "Real-world problem: incidents escalate when teams chase the wrong layer. "
+                    "Why this step: correlates user impact with infrastructure state. "
+                    "How it helps: narrows blast radius quickly."
+                ),
+                "code": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\"}[5m])) by (pod)\n"
+                "sum(container_memory_working_set_bytes{namespace=\"$namespace\"}) by (pod)\n"
+                "sum(rate(http_requests_total{namespace=\"$namespace\"}[5m])) by (service)",
+            },
+            {
+                "title": "Add SLO burn-rate panels",
+                "body": "Visualize fast and slow burn windows with clear thresholds.",
+                "output": "Multi-window burn-rate chart and status table.",
+                "duration": "30 min",
+                "priority": "High",
+                "points": "12",
+                "checkpoints": [
+                    "Short-window and long-window burn rates are both present.",
+                    "Threshold lines for page and ticket levels are annotated.",
+                ],
+                "acceptance": [
+                    "Burn-rate values map clearly to response urgency.",
+                ],
+                "pitfalls": [
+                    "Relying on one window only, causing false positives or delayed detection.",
+                ],
+                "details": (
+                    "Concept: burn-rate shows how quickly error budget is consumed. "
+                    "Why: raw error percentages hide urgency over different windows. "
+                    "Approach: implement short+long windows and annotate thresholds."
+                ),
+                "rationale": (
+                    "Real-world problem: teams detect SLO risk too late. "
+                    "Why this step: burn-rate gives early and credible warning. "
+                    "How it helps: supports proportional incident response."
+                ),
+                "code": "# Example error budget burn (99.9% SLO => budget 0.001)\n"
+                "(service:http_5xx_ratio:rate5m{service=\"$service\"}) / 0.001\n"
+                "(sum(rate(http_requests_total{status=~\"5..\",service=\"$service\"}[1h]))\n"
+                " / sum(rate(http_requests_total{service=\"$service\"}[1h]))) / 0.001",
+            },
+            {
+                "title": "Integrate alerts into dashboards",
+                "body": "Show firing and pending alerts with direct runbook links.",
+                "output": "Incident dashboard includes current alert state and owner metadata.",
+                "duration": "20 min",
+                "priority": "High",
+                "points": "8",
+                "checkpoints": [
+                    "Alert list panel is filtered by namespace/service/severity variables.",
+                    "Runbook and owner annotations are visible in alert metadata.",
+                ],
+                "acceptance": [
+                    "On-call can navigate from alert to runbook in one click.",
+                ],
+                "pitfalls": [
+                    "Missing owner metadata, making escalations ambiguous.",
+                ],
+                "details": (
+                    "Concept: dashboards must connect signal to action. "
+                    "Why: separate alert and graph tools increase triage latency. "
+                    "Approach: add alert list panel scoped by namespace/service/severity."
+                ),
+                "rationale": (
+                    "Real-world problem: responders lose time finding runbooks and ownership. "
+                    "Why this step: embeds operational context in one place. "
+                    "How it helps: reduces mean time to mitigation."
+                ),
+                "code": "labels:\n"
+                "  severity: page\n"
+                "  service: gratitude-api\n"
+                "  owner: platform\n"
+                "annotations:\n"
+                "  runbook: https://internal/wiki/gratitudeapi-incident",
+            },
+            {
+                "title": "Build panel-level troubleshooting drilldowns",
+                "body": "Add links from summary panels to endpoint, pod, and node deep dives.",
+                "output": "Every critical summary panel has a drilldown path.",
+                "duration": "20 min",
+                "priority": "Medium",
+                "points": "6",
+                "checkpoints": [
+                    "Service error panel links to endpoint breakdown panel.",
+                    "Latency panel links to pod restart and resource panels.",
+                ],
+                "acceptance": [
+                    "Drilldowns preserve selected variables and time range.",
+                ],
+                "pitfalls": [
+                    "Linking to dashboards that reset context and lose incident timeline.",
+                ],
+                "details": (
+                    "Concept: summary panels should provide a fast route to root-cause views. "
+                    "Why: manual navigation during incidents burns critical minutes. "
+                    "Approach: add dashboard links with URL parameters for context carry-over."
+                ),
+                "rationale": (
+                    "Real-world problem: responders spend time searching instead of mitigating. "
+                    "Why this step: creates deterministic investigation flow. "
+                    "How it helps: lowers cognitive overhead in high-pressure incidents."
+                ),
+                "code": "https://grafana.example/d/service?var-namespace=$namespace&var-service=$service&from=$__from&to=$__to",
+            },
+            {
+                "title": "Run load and validate dashboard behavior",
+                "body": "Generate synthetic traffic and verify panel responsiveness.",
+                "output": "Dashboards show expected trend changes under load.",
+                "duration": "30 min",
+                "priority": "High",
+                "points": "10",
+                "checkpoints": [
+                    "Low/medium/high load scenarios are executed and timestamped.",
+                    "Panel shifts are captured for throughput, latency, and error ratio.",
+                ],
+                "acceptance": [
+                    "Team can explain at least one non-intuitive metric behavior under stress.",
+                ],
+                "pitfalls": [
+                    "Using too short a test window to observe stable trends.",
+                    "Running load without marking timeline events.",
+                ],
+                "details": (
+                    "Concept: dashboards are software and need scenario-based tests. "
+                    "Why: a dashboard that looks good at idle may fail under stress. "
+                    "Approach: run low/medium/high traffic and capture panel snapshots."
+                ),
+                "rationale": (
+                    "Real-world problem: untested dashboards mislead incident response. "
+                    "Why this step: verifies that visuals track real system behavior. "
+                    "How it helps: builds operator trust."
+                ),
+                "code": "hey -z 3m -c 20 https://<app-url>/\n"
+                "hey -z 3m -c 80 https://<app-url>/\n"
+                "kubectl top pod -n gratitude",
+            },
+            {
+                "title": "Perform dashboard performance tuning",
+                "body": "Measure panel query times and optimize slow or high-cost queries.",
+                "output": "Dashboard load time and query costs reduced.",
+                "duration": "20 min",
+                "priority": "Medium",
+                "points": "6",
+                "checkpoints": [
+                    "Top 3 slow panels identified via query inspector.",
+                    "At least two queries moved to recording-rule-backed series.",
+                ],
+                "acceptance": [
+                    "Average panel load time improved after optimization.",
+                ],
+                "pitfalls": [
+                    "Over-aggregating too early and losing useful dimensions.",
+                ],
+                "details": (
+                    "Concept: dashboard responsiveness matters during incident triage. "
+                    "Why: slow panels delay decisions and degrade operator trust. "
+                    "Approach: use Grafana query inspector and Prometheus query logs."
+                ),
+                "rationale": (
+                    "Real-world problem: dashboards frequently time out when load spikes. "
+                    "Why this step: eliminates expensive expressions from hot paths. "
+                    "How it helps: keeps observability usable when it's needed most."
+                ),
+                "code": "sum(rate(http_requests_total{namespace=\"$namespace\"}[5m])) by (service)\n"
+                "# Replace repeated heavy query with\n"
+                "service:http_rps:rate5m{service=\"$service\"}",
+            },
+            {
+                "title": "Provision dashboards as code",
+                "body": "Export JSON and store in Git with reviewable changes.",
+                "output": "Versioned dashboard definitions and provisioning config committed.",
+                "duration": "25 min",
+                "priority": "High",
+                "points": "6",
+                "checkpoints": [
+                    "All four dashboards exported and committed in a deterministic folder layout.",
+                    "Provisioning config references dashboard folder and JSON files.",
+                ],
+                "acceptance": [
+                    "A fresh Grafana instance can load dashboards from the repo artifacts.",
+                ],
+                "pitfalls": [
+                    "Committing UI-generated noise fields that create noisy diffs.",
+                ],
+                "details": (
+                    "Concept: dashboard-as-code enables change control and rollbacks. "
+                    "Why: manual UI edits are hard to audit and reproduce. "
+                    "Approach: commit JSON, datasource templates, and folder provisioning."
+                ),
+                "rationale": (
+                    "Real-world problem: dashboard drift across environments and teams. "
+                    "Why this step: codifies dashboard lifecycle with CI review. "
+                    "How it helps: repeatable and auditable observability."
+                ),
+                "code": "observability/\n"
+                "  grafana/\n"
+                "    provisioning/dashboards/dashboards.yaml\n"
+                "    dashboards/exec-slo-overview.json\n"
+                "    dashboards/service-deep-dive.json\n"
+                "  prometheus/\n"
+                "    recording-rules.yaml\n"
+                "    alert-rules.yaml",
+            },
+            {
+                "title": "Write an incident narrative from the dashboard set",
+                "body": "Simulate a short outage and write a timeline using dashboard evidence.",
+                "output": "One-page incident narrative with timestamps and dashboard screenshots.",
+                "duration": "25 min",
+                "priority": "Medium",
+                "points": "10",
+                "checkpoints": [
+                    "Narrative includes detection time, probable cause, and mitigation action.",
+                    "At least three panels are cited as evidence.",
+                ],
+                "acceptance": [
+                    "Narrative is actionable for another engineer unfamiliar with the system.",
+                ],
+                "pitfalls": [
+                    "Conclusions without metric evidence or timestamps.",
+                ],
+                "details": (
+                    "Concept: dashboards are valuable only if they support real decisions. "
+                    "Why: incident reports expose gaps in panel design and interpretation. "
+                    "Approach: reconstruct a timeline from burn-rate, RED, and capacity signals."
+                ),
+                "rationale": (
+                    "Real-world problem: teams have dashboards but weak post-incident learning. "
+                    "Why this step: validates end-to-end usability of your observability stack. "
+                    "How it helps: converts charts into operational practice."
+                ),
+                "code": "Template:\n"
+                "T0 Detection:\n"
+                "T+5m Triage signal:\n"
+                "T+12m Mitigation:\n"
+                "T+20m Recovery:\n"
+                "Postmortem action items:",
+            },
+        ],
+        "deliverables": [
+            {
+                "title": "SLO contract document",
+                "body": "Defined SLIs/SLOs and mapped user journey.",
+            },
+            {
+                "title": "Recording rule manifest",
+                "body": "Prometheus rules for rate, error ratio, and p95 latency.",
+            },
+            {
+                "title": "Four advanced dashboards",
+                "body": "Executive, Service, Capacity, and Incident dashboards with variables.",
+            },
+            {
+                "title": "Load validation evidence",
+                "body": "Screenshots proving panel behavior under changing traffic levels.",
+            },
+            {
+                "title": "Dashboards-as-code repo artifacts",
+                "body": "Committed JSON/provisioning files and change log.",
+            },
+            {
+                "title": "Incident narrative",
+                "body": "A timeline-driven incident analysis using dashboard evidence.",
+            },
+        ],
+        "validation": [
+            "Dashboards answer SLO status, incident state, and capacity trend questions.",
+            "Recording rules are used for expensive repeated expressions.",
+            "Burn-rate panels show both short and long windows with thresholds.",
+            "Alert context includes severity, ownership, and runbook links.",
+            "Dashboard definitions are version-controlled and reproducible.",
+            "Drilldown links preserve context and accelerate investigation paths.",
+            "Dashboard query performance is tested and tuned.",
+        ],
+        "resources": [
+            {
+                "title": "Prometheus best practices",
+                "body": "https://prometheus.io/docs/practices/naming/",
+            },
+            {
+                "title": "PromQL functions",
+                "body": "https://prometheus.io/docs/prometheus/latest/querying/functions/",
+            },
+            {
+                "title": "Grafana dashboard best practices",
+                "body": "https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/best-practices/",
+            },
+            {
+                "title": "SRE workbook (SLO alerts)",
+                "body": "https://sre.google/workbook/alerting-on-slos/",
+            },
+            {
+                "title": "Grafana observability-as-code",
+                "body": "https://grafana.com/docs/grafana/latest/administration/provisioning/",
+            },
+        ],
+        "compare_enabled": False,
+        "automation_enabled": False,
+        "leaderboard_enabled": False,
+        "submission_enabled": False,
+        "form_cta": "No submission required",
+        "form_helper": "Capture screenshots, PromQL queries, and JSON exports for your report.",
+        "sections": [
+            {
+                "title": "Dashboard standards",
+                "items": [
+                    {
+                        "title": "Time ranges",
+                        "body": "Provide 15m, 1h, 6h, 24h, and 7d quick ranges for each board.",
+                    },
+                    {
+                        "title": "Panel clarity",
+                        "body": "Every panel includes unit, legend, and one-line interpretation.",
+                    },
+                    {
+                        "title": "Threshold policy",
+                        "body": "Use documented warning/critical thresholds tied to SLOs.",
+                    },
+                ],
+            },
+            {
+                "title": "Advanced panel set",
+                "items": [
+                    {"title": "Top offenders", "body": "Top endpoints by p95 latency and error ratio."},
+                    {"title": "Budget burn", "body": "Multi-window burn-rate panels and state table."},
+                    {"title": "Capacity trend", "body": "CPU/memory saturation trend with headroom estimate."},
+                    {"title": "Alert feed", "body": "Firing and pending alerts scoped by variables."},
+                ],
+            },
+            {
+                "title": "Assessment prompts",
+                "items": [
+                    {
+                        "title": "Noise vs signal",
+                        "body": "Explain one panel removed because it created noise.",
+                    },
+                    {
+                        "title": "Cardinality control",
+                        "body": "Show one metric label design change that reduced cardinality risk.",
+                    },
+                    {
+                        "title": "Incident triage",
+                        "body": "Describe how your Incident dashboard isolates probable root cause.",
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 
@@ -2235,6 +2839,11 @@ def lab6():
 @app.get("/lab7")
 def lab7():
     return redirect(url_for("lab_detail", lab_id="lab7"))
+
+
+@app.get("/lab8")
+def lab8():
+    return redirect(url_for("lab_detail", lab_id="lab8"))
 
 
 @app.get("/downloads/<file_key>")
